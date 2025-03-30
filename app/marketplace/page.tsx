@@ -16,6 +16,8 @@ type Provider = {
   business_name: string
   sector: number
   sector_name: string
+  user_profile_picture: string
+  profile_picture?: string
   subcategory: number
   subcategory_name: string
   address: string
@@ -34,32 +36,49 @@ type Subcategory = {
   sector: number
 }
 
+type PaginatedProviders = {
+  count: number
+  next: string | null
+  previous: string | null
+  results: Provider[]
+}
+
 export default function MarketplacePage() {
   const searchParams = useSearchParams()
   const [providers, setProviders] = useState<Provider[]>([])
+  const [nextPage, setNextPage] = useState<string | null>(null)
+  const [prevPage, setPrevPage] = useState<string | null>(null)
   const [sectors, setSectors] = useState<Sector[]>([])
   const [subcategories, setSubcategories] = useState<Subcategory[]>([])
   const [filteredSubcategories, setFilteredSubcategories] = useState<Subcategory[]>([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
 
-  // Filter states
   const [searchQuery, setSearchQuery] = useState("")
   const [selectedSector, setSelectedSector] = useState<string>("")
   const [selectedSubcategory, setSelectedSubcategory] = useState<string>("")
+
+  const fetchProviders = async (queryParams: string = "") => {
+    try {
+      const data: PaginatedProviders = await marketplaceApi.getProviders(queryParams)
+      setProviders(data.results)
+      setNextPage(data.next)
+      setPrevPage(data.previous)
+    } catch (err) {
+      console.error("Error fetching providers:", err)
+      setError("Failed to load providers")
+    }
+  }
 
   useEffect(() => {
     const fetchData = async () => {
       try {
         setLoading(true)
-
-        // Get search parameter from URL
         const searchParam = searchParams.get("search")
         if (searchParam) {
           setSearchQuery(searchParam)
         }
 
-        // Construct query parameters
         let queryParams = ""
         if (searchParam) {
           queryParams += `?search=${encodeURIComponent(searchParam)}`
@@ -71,20 +90,23 @@ export default function MarketplacePage() {
           marketplaceApi.getSubcategories(),
         ])
 
-        setProviders(providersData)
+        setProviders(providersData.results)
+        setNextPage(providersData.next)
+        setPrevPage(providersData.previous)
         setSectors(sectorsData)
         setSubcategories(subcategoriesData)
 
-        // Check for other query parameters
         const sectorParam = searchParams.get("sector")
         const subcategoryParam = searchParams.get("subcategory")
 
         if (sectorParam) {
           setSelectedSector(sectorParam)
-          const filteredSubs = subcategoriesData.filter((sub) => sub.sector.toString() === sectorParam)
+          const filteredSubs = subcategoriesData.filter((sub: Subcategory) => 
+            sub.sector.toString() === sectorParam
+          )
           setFilteredSubcategories(filteredSubs)
         }
-
+        
         if (subcategoryParam) {
           setSelectedSubcategory(subcategoryParam)
         }
@@ -101,7 +123,7 @@ export default function MarketplacePage() {
   }, [searchParams])
 
   useEffect(() => {
-    if (selectedSector) {
+    if (selectedSector && selectedSector !== "all") {
       const filtered = subcategories.filter((sub) => sub.sector.toString() === selectedSector)
       setFilteredSubcategories(filtered)
     } else {
@@ -110,55 +132,82 @@ export default function MarketplacePage() {
     }
   }, [selectedSector, subcategories])
 
-  const handleSearch = () => {
-    setLoading(true)
+  const handleSearch = async () => {
+    try {
+      setLoading(true)
+      let queryParams = ""
+      if (searchQuery) {
+        queryParams += `?search=${encodeURIComponent(searchQuery)}`
+      }
+      if (selectedSector && selectedSector !== "all") {
+        queryParams += queryParams ? `&sector=${selectedSector}` : `?sector=${selectedSector}`
+      }
+      if (selectedSubcategory && selectedSubcategory !== "all") {
+        queryParams += queryParams ? `&subcategory=${selectedSubcategory}` : `?subcategory=${selectedSubcategory}`
+      }
 
-    let queryParams = ""
-    if (searchQuery) {
-      queryParams += `?search=${encodeURIComponent(searchQuery)}`
+      await fetchProviders(queryParams)
+      setLoading(false)
+    } catch (err) {
+      console.error("Error searching providers:", err)
+      setError("Failed to search providers")
+      setLoading(false)
     }
-
-    marketplaceApi
-      .getProviders(queryParams)
-      .then((data) => {
-        let filtered = data
-
-        if (selectedSector) {
-          filtered = filtered.filter((provider: Provider) => provider.sector.toString() === selectedSector)
-        }
-
-        if (selectedSubcategory) {
-          filtered = filtered.filter((provider: Provider) => provider.subcategory.toString() === selectedSubcategory)
-        }
-
-        setProviders(filtered)
-        setLoading(false)
-      })
-      .catch((err) => {
-        console.error("Error searching providers:", err)
-        setError("Failed to search providers")
-        setLoading(false)
-      })
   }
 
-  const resetFilters = () => {
+  const resetFilters = async () => {
     setSearchQuery("")
     setSelectedSector("")
     setSelectedSubcategory("")
     setFilteredSubcategories([])
 
-    setLoading(true)
-    marketplaceApi
-      .getProviders()
-      .then((data) => {
-        setProviders(data)
+    try {
+      setLoading(true)
+      await fetchProviders()
+      setLoading(false)
+    } catch (err) {
+      console.error("Error resetting filters:", err)
+      setError("Failed to reset filters")
+      setLoading(false)
+    }
+  }
+
+  const handleNextPage = async () => {
+    if (nextPage) {
+      try {
+        setLoading(true)
+        const nextUrl = new URL(nextPage)
+        const query = nextUrl.search
+        const data: PaginatedProviders = await marketplaceApi.getProviders(query)
+        setProviders(data.results)
+        setNextPage(data.next)
+        setPrevPage(data.previous)
         setLoading(false)
-      })
-      .catch((err) => {
-        console.error("Error resetting filters:", err)
-        setError("Failed to reset filters")
+      } catch (err) {
+        console.error("Error loading next page:", err)
+        setError("Failed to load next page")
         setLoading(false)
-      })
+      }
+    }
+  }
+  
+  const handlePrevPage = async () => {
+    if (prevPage) {
+      try {
+        setLoading(true)
+        const prevUrl = new URL(prevPage)
+        const query = prevUrl.search
+        const data: PaginatedProviders = await marketplaceApi.getProviders(query)
+        setProviders(data.results)
+        setNextPage(data.next)
+        setPrevPage(data.previous)
+        setLoading(false)
+      } catch (err) {
+        console.error("Error loading previous page:", err)
+        setError("Failed to load previous page")
+        setLoading(false)
+      }
+    }
   }
 
   if (error) {
@@ -170,17 +219,7 @@ export default function MarketplacePage() {
             onClick={() => {
               setError(null)
               setLoading(true)
-              marketplaceApi
-                .getProviders()
-                .then((data) => {
-                  setProviders(data)
-                  setLoading(false)
-                })
-                .catch((err) => {
-                  console.error("Error retrying:", err)
-                  setError("Failed to load marketplace data")
-                  setLoading(false)
-                })
+              fetchProviders().then(() => setLoading(false))
             }}
           >
             Retry
@@ -198,7 +237,6 @@ export default function MarketplacePage() {
           <p className="text-muted-foreground">Find and connect with service providers in your area</p>
         </div>
 
-        {/* Search and filters */}
         <div className="grid gap-4 md:grid-cols-4">
           <div className="md:col-span-2">
             <div className="relative">
@@ -255,7 +293,6 @@ export default function MarketplacePage() {
           </div>
         </div>
 
-        {/* Results */}
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6 mt-8">
           {loading ? (
             Array(6)
@@ -287,7 +324,7 @@ export default function MarketplacePage() {
               <Card key={provider.id} className="overflow-hidden">
                 <CardContent className="p-0">
                   <img
-                    src="/placeholder.svg?height=200&width=400"
+                    src={provider.user_profile_picture || "/placeholder.svg?height=200&width=400"}
                     alt={provider.business_name}
                     className="h-48 w-full object-cover"
                   />
@@ -326,8 +363,22 @@ export default function MarketplacePage() {
             ))
           )}
         </div>
+
+        {!loading && providers.length > 0 && (
+          <div className="flex justify-center mt-8 gap-4">
+            {prevPage && (
+              <Button onClick={handlePrevPage}>
+                Previous
+              </Button>
+            )}
+            {nextPage && (
+              <Button onClick={handleNextPage}>
+                Next
+              </Button>
+            )}
+          </div>
+        )}
       </div>
     </div>
   )
 }
-

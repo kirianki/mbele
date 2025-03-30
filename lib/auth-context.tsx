@@ -232,8 +232,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       const accessToken = localStorage.getItem("accessToken")
       if (!accessToken) throw new Error("Not authenticated")
 
-      // Use the user ID in the URL
-      const response = await fetch(`${API_URL}/accounts/profile/${user?.id}/`, {
+      const response = await fetch(`${API_URL}/accounts/profile/`, {
         method: "PUT",
         headers: {
           "Content-Type": "application/json",

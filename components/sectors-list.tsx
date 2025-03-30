@@ -12,7 +12,7 @@ type Sector = {
   id: number
   name: string
   description: string
-  thumbnail?: string
+  thumbnail: string
 }
 
 interface SectorsListProps {
@@ -81,7 +81,7 @@ export default function SectorsList({ limit = 4, showViewAll = true }: SectorsLi
                   <CardContent className="p-0">
                     <div className="relative">
                       <img
-                        src={getSectorImage(sector.name) || "/placeholder.svg"}
+                        src={sector.thumbnail || "/placeholder.svg"}
                         alt={sector.name}
                         className="h-40 w-full object-cover"
                       />

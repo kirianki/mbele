@@ -32,28 +32,14 @@ export default function NotificationsDropdown({ open, onOpenChange }: Notificati
   const [notifications, setNotifications] = useState<Notification[]>([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
-  const [unreadMessages, setUnreadMessages] = useState(0)
 
-  const unreadNotifications = notifications.filter((n) => !n.is_read).length
-  const totalUnread = unreadNotifications + unreadMessages
+  const unreadCount = notifications.filter((n) => !n.is_read).length
 
   useEffect(() => {
     if (user && open) {
       fetchNotifications()
-      fetchUnreadMessageCount()
     }
   }, [user, open])
-
-  // Periodically check for new messages/notifications
-  useEffect(() => {
-    if (!user) return
-
-    const checkInterval = setInterval(() => {
-      fetchUnreadMessageCount()
-    }, 30000) // Check every 30 seconds
-
-    return () => clearInterval(checkInterval)
-  }, [user])
 
   const fetchNotifications = async () => {
     try {
@@ -69,19 +55,8 @@ export default function NotificationsDropdown({ open, onOpenChange }: Notificati
     }
   }
 
-  const fetchUnreadMessageCount = async () => {
-    if (!user) return
-
-    try {
-      const data = await communicationsApi.getUnreadCount()
-      setUnreadMessages(data.count || 0)
-    } catch (err) {
-      console.error("Error fetching unread message count:", err)
-    }
-  }
-
   const markAsRead = async () => {
-    if (unreadNotifications === 0) return
+    if (unreadCount === 0) return
 
     try {
       await communicationsApi.markNotificationsAsRead()
@@ -108,9 +83,9 @@ export default function NotificationsDropdown({ open, onOpenChange }: Notificati
       <DropdownMenuTrigger asChild>
         <Button variant="ghost" size="icon" className="relative">
           <Bell className="h-5 w-5" />
-          {totalUnread > 0 && (
+          {unreadCount > 0 && (
             <span className="absolute -top-1 -right-1 flex h-4 w-4 items-center justify-center rounded-full bg-primary text-[10px] text-primary-foreground">
-              {totalUnread}
+              {unreadCount}
             </span>
           )}
         </Button>
@@ -118,31 +93,13 @@ export default function NotificationsDropdown({ open, onOpenChange }: Notificati
       <DropdownMenuContent className="w-80" align="end">
         <DropdownMenuLabel className="flex items-center justify-between">
           <span>Notifications</span>
-          {unreadNotifications > 0 && (
+          {unreadCount > 0 && (
             <Button variant="ghost" size="sm" className="h-auto text-xs px-2 py-1" onClick={markAsRead}>
               Mark all as read
             </Button>
           )}
         </DropdownMenuLabel>
         <DropdownMenuSeparator />
-
-        {/* Unread messages notification */}
-        {unreadMessages > 0 && (
-          <>
-            <DropdownMenuItem asChild>
-              <a href="/messages" className="cursor-pointer">
-                <div className="w-full p-3 bg-muted/50">
-                  <p className="text-sm font-medium">
-                    You have {unreadMessages} unread message{unreadMessages !== 1 ? "s" : ""}
-                  </p>
-                  <p className="text-xs text-muted-foreground mt-1">Click to view your messages</p>
-                </div>
-              </a>
-            </DropdownMenuItem>
-            <DropdownMenuSeparator />
-          </>
-        )}
-
         {loading ? (
           Array(3)
             .fill(null)

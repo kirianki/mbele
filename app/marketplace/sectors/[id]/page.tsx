@@ -14,6 +14,7 @@ type Sector = {
   id: number
   name: string
   description: string
+  thumbnail: string
 }
 
 type Subcategory = {
@@ -115,7 +116,7 @@ export default function SectorPage({ params }: { params: Promise<{ id: string }>
             <div className="flex flex-col md:flex-row gap-6 items-center md:items-start">
               <div className="md:w-1/3">
                 <img
-                  src={getSectorImage(sector.name) || "/placeholder.svg"}
+                  src={sector.thumbnail || "/placeholder.svg"}
                   alt={sector.name}
                   className="rounded-lg w-full h-48 object-cover"
                 />

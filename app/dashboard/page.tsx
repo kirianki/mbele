@@ -37,9 +37,10 @@ export default function DashboardPage() {
         communicationsApi.getMessages(),
         transactionsApi.getFavorites(),
       ])
-
+  
       setBookings(bookingsData)
-      setMessages(messagesData)
+      // Extract the array of messages from messagesData.results
+      setMessages(messagesData.results || [])
       setFavorites(favoritesData)
     } catch (error) {
       console.error("Error fetching dashboard data:", error)
@@ -47,6 +48,7 @@ export default function DashboardPage() {
       setLoading(false)
     }
   }
+  
 
   if (authLoading || !user) {
     return (
@@ -92,19 +94,10 @@ export default function DashboardPage() {
             </CardHeader>
             <CardContent>
               <div className="text-2xl font-bold">
-                {loading ? (
-                  <Skeleton className="h-8 w-16" />
-                ) : Array.isArray(messages) ? (
-                  messages.filter((msg: any) => !msg.is_read).length
-                ) : (
-                  0
-                )}
+                {loading ? <Skeleton className="h-8 w-16" /> : messages.filter((msg: any) => !msg.is_read).length}
               </div>
               <p className="text-xs text-muted-foreground">
-                {(Array.isArray(messages) ? messages.filter((msg: any) => !msg.is_read).length : 0) === 1
-                  ? "message"
-                  : "messages"}{" "}
-                unread
+                {messages.filter((msg: any) => !msg.is_read).length === 1 ? "message" : "messages"} unread
               </p>
             </CardContent>
           </Card>
@@ -210,31 +203,27 @@ export default function DashboardPage() {
                   </div>
                 ) : (
                   <div className="space-y-4">
-                    {Array.isArray(messages) && messages.length > 0 ? (
-                      messages.map((message: any) => (
-                        <div key={message.id} className="flex items-center justify-between rounded-lg border p-4">
-                          <div className="space-y-1">
-                            <p className="font-medium">
-                              {message.sender_id === user.id
-                                ? `To: ${message.receiver_username}`
-                                : `From: ${message.sender_username}`}
-                            </p>
-                            <p className="text-sm text-muted-foreground line-clamp-1">{message.content}</p>
-                          </div>
-                          <div className="flex items-center gap-2">
-                            <Link
-                              href={`/messages/${message.sender_id === user.id ? message.receiver_id : message.sender_id}`}
-                            >
-                              <Button variant="outline" size="sm">
-                                View
-                              </Button>
-                            </Link>
-                          </div>
+                    {messages.map((message: any) => (
+                      <div key={message.id} className="flex items-center justify-between rounded-lg border p-4">
+                        <div className="space-y-1">
+                          <p className="font-medium">
+                            {message.sender_id === user.id
+                              ? `To: ${message.receiver_username}`
+                              : `From: ${message.sender_username}`}
+                          </p>
+                          <p className="text-sm text-muted-foreground line-clamp-1">{message.content}</p>
                         </div>
-                      ))
-                    ) : (
-                      <p>No messages available.</p>
-                    )}
+                        <div className="flex items-center gap-2">
+                          <Link
+                            href={`/messages/${message.sender_id === user.id ? message.receiver_id : message.sender_id}`}
+                          >
+                            <Button variant="outline" size="sm">
+                              View
+                            </Button>
+                          </Link>
+                        </div>
+                      </div>
+                    ))}
                   </div>
                 )}
               </CardContent>

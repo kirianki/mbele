@@ -109,7 +109,7 @@ export default function FavoritesPage() {
                 <p className="text-destructive mb-4">{error}</p>
                 <Button onClick={fetchFavorites}>Retry</Button>
               </div>
-            ) : !Array.isArray(favorites) || favorites.length === 0 ? (
+            ) : favorites.length === 0 ? (
               <div className="flex flex-col items-center justify-center py-12 text-center">
                 <Star className="h-12 w-12 text-muted-foreground mb-4" />
                 <h3 className="text-lg font-medium">No favorites yet</h3>

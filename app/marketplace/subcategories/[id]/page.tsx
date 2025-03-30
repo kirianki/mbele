@@ -21,6 +21,7 @@ type Subcategory = {
 type Provider = {
   id: number
   business_name: string
+  user_profile_picture: string
   sector: number
   sector_name: string
   subcategory: number
@@ -47,8 +48,11 @@ export default function SubcategoryPage({ params }: { params: Promise<{ id: stri
         setLoading(true)
 
         // Fetch all subcategories to find the current one
-        const subcategoriesData = await marketplaceApi.getSubcategories()
-        const currentSubcategory = subcategoriesData.find((s: Subcategory) => s.id === subcategoryId)
+        const subcategoriesResponse = await marketplaceApi.getSubcategories()
+        const subcategoriesData = subcategoriesResponse.data || subcategoriesResponse
+        const currentSubcategory = Array.isArray(subcategoriesData) 
+          ? subcategoriesData.find((s: Subcategory) => s.id === subcategoryId)
+          : null
 
         if (!currentSubcategory) {
           setError("Subcategory not found")
@@ -59,8 +63,11 @@ export default function SubcategoryPage({ params }: { params: Promise<{ id: stri
         setSubcategory(currentSubcategory)
 
         // Fetch all providers and filter by subcategory
-        const allProviders = await marketplaceApi.getProviders()
-        const filteredProviders = allProviders.filter((provider: Provider) => provider.subcategory === subcategoryId)
+        const providersResponse = await marketplaceApi.getProviders()
+        const allProviders = providersResponse.results || providersResponse.data || providersResponse
+        const filteredProviders = Array.isArray(allProviders)
+          ? allProviders.filter((provider: Provider) => Number(provider.subcategory) === subcategoryId)
+          : []
 
         setProviders(filteredProviders)
         setLoading(false)
@@ -125,7 +132,7 @@ export default function SubcategoryPage({ params }: { params: Promise<{ id: stri
                   <Card key={provider.id} className="overflow-hidden hover-lift">
                     <CardContent className="p-0">
                       <img
-                        src="/placeholder.svg?height=200&width=400"
+                        src={provider.user_profile_picture || "/placeholder.svg?height=200&width=400"}
                         alt={provider.business_name}
                         className="h-48 w-full object-cover"
                       />
@@ -172,4 +179,3 @@ export default function SubcategoryPage({ params }: { params: Promise<{ id: stri
     </div>
   )
 }
-

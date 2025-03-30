@@ -18,6 +18,7 @@ type Provider = {
   user_id: number
   user_username: string
   business_name: string
+  user_profile_picture: string
   address: string
   location: any
   sector: number
@@ -58,8 +59,11 @@ export default function ProviderProfilePage({ params }: { params: Promise<{ id: 
   const [error, setError] = useState<string | null>(null)
   const [isFavorite, setIsFavorite] = useState(false)
   const [favorites, setFavorites] = useState<any[]>([])
+  // State for new review creation
+  const [newRating, setNewRating] = useState(5)
+  const [newComment, setNewComment] = useState("")
 
-  // Use React.use to unwrap the params promise
+  // Unwrap params (assumed not to be a promise in actual usage)
   const { id } = use(params)
   const providerId = Number.parseInt(id)
 
@@ -161,6 +165,43 @@ export default function ProviderProfilePage({ params }: { params: Promise<{ id: 
     router.push(`/messages/${provider?.user_id}`)
   }
 
+  // Handler for review creation
+  const handleReviewSubmit = async (e: React.FormEvent) => {
+    e.preventDefault()
+    if (!user) {
+      toast({
+        title: "Authentication required",
+        description: "Please log in to leave a review",
+        variant: "destructive",
+      })
+      router.push("/auth/login")
+      return
+    }
+    try {
+      // Call API to create review (adjust parameters as needed)
+      const createdReview = await marketplaceApi.createReview({
+        provider: providerId,
+        rating: newRating,
+        comment: newComment,
+      })
+      // Prepend the new review to the list
+      setReviews([createdReview, ...reviews])
+      setNewRating(5)
+      setNewComment("")
+      toast({
+        title: "Review submitted",
+        description: "Your review has been submitted successfully",
+      })
+    } catch (err) {
+      console.error("Error creating review:", err)
+      toast({
+        title: "Error",
+        description: "Failed to submit review",
+        variant: "destructive",
+      })
+    }
+  }
+
   if (error) {
     return (
       <div className="container py-10">
@@ -219,7 +260,7 @@ export default function ProviderProfilePage({ params }: { params: Promise<{ id: 
             <div className="flex flex-col md:flex-row gap-6">
               <div className="md:w-1/3">
                 <img
-                  src="/placeholder.svg?height=300&width=400"
+                  src={provider.user_profile_picture || "/placeholder.svg?height=200&width=400"}
                   alt={provider.business_name}
                   className="w-full h-64 object-cover rounded-lg"
                 />
@@ -346,7 +387,6 @@ export default function ProviderProfilePage({ params }: { params: Promise<{ id: 
                     {reviews.length === 0 ? (
                       <div className="text-center py-8">
                         <p className="text-muted-foreground">No reviews yet</p>
-                        {user && user.id !== provider.user_id && <Button className="mt-4">Write a Review</Button>}
                       </div>
                     ) : (
                       <div className="space-y-6">
@@ -386,6 +426,34 @@ export default function ProviderProfilePage({ params }: { params: Promise<{ id: 
                             )}
                           </div>
                         ))}
+                      </div>
+                    )}
+
+                    {user && user.id !== provider.user_id && (
+                      <div className="mt-6">
+                        <h3 className="text-lg font-semibold">Leave a Review</h3>
+                        <form onSubmit={handleReviewSubmit} className="flex flex-col gap-2">
+                          <label>Rating:</label>
+                          <select
+                            value={newRating}
+                            onChange={(e) => setNewRating(Number(e.target.value))}
+                            className="border p-1"
+                          >
+                            <option value={1}>1</option>
+                            <option value={2}>2</option>
+                            <option value={3}>3</option>
+                            <option value={4}>4</option>
+                            <option value={5}>5</option>
+                          </select>
+                          <label>Comment:</label>
+                          <textarea
+                            value={newComment}
+                            onChange={(e) => setNewComment(e.target.value)}
+                            required
+                            className="border p-2"
+                          ></textarea>
+                          <Button type="submit">Submit Review</Button>
+                        </form>
                       </div>
                     )}
                   </CardContent>
@@ -432,4 +500,3 @@ export default function ProviderProfilePage({ params }: { params: Promise<{ id: 
     </div>
   )
 }
-

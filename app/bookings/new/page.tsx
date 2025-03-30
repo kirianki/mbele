@@ -19,6 +19,12 @@ import { useAuth } from "@/lib/auth-context"
 import { marketplaceApi, transactionsApi } from "@/lib/api"
 import { useToast } from "@/components/ui/use-toast"
 
+interface Provider {
+  id: number
+  business_name: string
+  sector_name: string
+}
+
 const bookingFormSchema = z.object({
   provider: z.string().min(1, "Please select a service provider"),
   service_date: z.date({
@@ -31,16 +37,25 @@ export default function NewBookingPage() {
   const router = useRouter()
   const searchParams = useSearchParams()
   const { toast } = useToast()
-  const [providers, setProviders] = useState<any[]>([])
+  const [providers, setProviders] = useState<Provider[]>([])
   const [loading, setLoading] = useState(true)
   const [submitting, setSubmitting] = useState(false)
   const [error, setError] = useState<string | null>(null)
 
   const providerId = searchParams.get("provider")
 
+  const form = useForm<z.infer<typeof bookingFormSchema>>({
+    resolver: zodResolver(bookingFormSchema),
+    defaultValues: {
+      provider: providerId || "",
+      service_date: undefined,
+    },
+  })
+
   useEffect(() => {
     if (!authLoading && !user) {
       router.push("/auth/login")
+      return
     }
 
     if (user) {
@@ -51,34 +66,63 @@ export default function NewBookingPage() {
   const fetchProviders = async () => {
     try {
       setLoading(true)
-      const data = await marketplaceApi.getProviders()
-      setProviders(data)
-      setError(null)
+      const response = await marketplaceApi.getProviders()
+
+      if (response && Array.isArray(response.results)) {
+        if (response.results.length > 0) {
+          setProviders(response.results)
+          setError(null)
+          
+          // If coming from provider page, find and preselect the provider
+          if (providerId) {
+            const preselectedProvider = response.results.find(p => p.id.toString() === providerId)
+            if (preselectedProvider) {
+              form.setValue('provider', providerId)
+              form.trigger('provider') // Validate the field
+            }
+          }
+        } else {
+          setError("No service providers available")
+          setProviders([])
+        }
+      } else {
+        console.error("Unexpected providers format:", response)
+        setError("Service providers data is not available")
+        setProviders([])
+      }
     } catch (err) {
       console.error("Error fetching providers:", err)
-      setError("Failed to load service providers")
+      setError("Failed to load service providers. Please try again later.")
+      setProviders([])
     } finally {
       setLoading(false)
     }
   }
 
-  const form = useForm<z.infer<typeof bookingFormSchema>>({
-    resolver: zodResolver(bookingFormSchema),
-    defaultValues: {
-      provider: providerId || "",
-      service_date: undefined,
-    },
-  })
-
   const onSubmit = async (values: z.infer<typeof bookingFormSchema>) => {
     if (!user) return
 
+    // Double-check provider is selected
+    if (!values.provider) {
+      toast({
+        title: "Provider required",
+        description: "Please select a service provider",
+        variant: "destructive",
+      })
+      return
+    }
+
     setSubmitting(true)
     try {
-      await transactionsApi.createBooking({
-        provider: Number.parseInt(values.provider),
-        service_date: values.service_date.toISOString(),
-      })
+      // Prepare payload according to expected format
+      const payload = {
+        provider_id: Number(values.provider), // Ensure this is a number
+        service_date: values.service_date.toISOString(), // ISO 8601 format
+      }
+
+      console.log("Submitting booking payload:", payload) // Debug log
+
+      await transactionsApi.createBooking(payload)
 
       toast({
         title: "Booking created",
@@ -134,6 +178,11 @@ export default function NewBookingPage() {
                 <p className="text-destructive mb-4">{error}</p>
                 <Button onClick={fetchProviders}>Retry</Button>
               </div>
+            ) : providers.length === 0 ? (
+              <div className="text-center py-8">
+                <p className="text-muted-foreground mb-4">No service providers available at this time</p>
+                <Button onClick={fetchProviders}>Refresh</Button>
+              </div>
             ) : (
               <Form {...form}>
                 <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-6">
@@ -143,7 +192,11 @@ export default function NewBookingPage() {
                     render={({ field }) => (
                       <FormItem>
                         <FormLabel>Service Provider</FormLabel>
-                        <Select onValueChange={field.onChange} defaultValue={field.value}>
+                        <Select 
+                          onValueChange={field.onChange} 
+                          value={field.value}
+                          defaultValue={field.value}
+                        >
                           <FormControl>
                             <SelectTrigger>
                               <SelectValue placeholder="Select a service provider" />
@@ -217,4 +270,3 @@ export default function NewBookingPage() {
     </div>
   )
 }
-

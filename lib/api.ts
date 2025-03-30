@@ -74,6 +74,7 @@ async function refreshAccessToken(): Promise<boolean> {
   }
 }
 
+
 // Marketplace API
 export const marketplaceApi = {
   // Providers
@@ -155,13 +156,50 @@ export const marketplaceApi = {
     return response.json()
   },
 
-  uploadPortfolioItem: async (providerId: number, data: any) => {
-    const response = await fetchWithAuth(`/marketplace/providers/${providerId}/portfolio/`, {
+  getPortfolioItems: async (providerId: number) => {
+    const response = await fetchWithAuth(`/marketplace/providers/${providerId}/portfolio/`)
+    return response.json()
+  },
+
+  uploadPortfolioItem: async (providerId: number, data: FormData) => {
+    const accessToken = localStorage.getItem("accessToken")
+    const headers: Record<string, string> = {}
+    
+    if (accessToken) {
+      headers["Authorization"] = `Bearer ${accessToken}`
+    }
+
+    const response = await fetch(`${API_URL}/marketplace/providers/${providerId}/portfolio/`, {
       method: "POST",
-      body: JSON.stringify(data),
+      headers,
+      body: data, // Note: Don't set Content-Type header - the browser will set it with the correct boundary
     })
     return response.json()
   },
+
+  updatePortfolioItem: async (providerId: number, itemId: number, data: FormData) => {
+    const accessToken = localStorage.getItem("accessToken")
+    const headers: Record<string, string> = {}
+    
+    if (accessToken) {
+      headers["Authorization"] = `Bearer ${accessToken}`
+    }
+
+    const response = await fetch(`${API_URL}/marketplace/providers/${providerId}/portfolio/${itemId}/`, {
+      method: "PUT",
+      headers,
+      body: data,
+    })
+    return response.json()
+  },
+
+  deletePortfolioItem: async (providerId: number, itemId: number) => {
+    const response = await fetchWithAuth(`/marketplace/providers/${providerId}/portfolio/${itemId}/`, {
+      method: "DELETE",
+    })
+    return response.status === 204
+  },
+  
 }
 
 function getAccessToken(): string | null {
@@ -173,11 +211,40 @@ export const communicationsApi = {
   // Messages
   getMessages: async () => {
     try {
-      const response = await fetchWithAuth("/communications/messages/")
-      return response.json()
+      const response = await fetchWithAuth("/communications/messages/");
+      return response.json();
     } catch (error) {
-      console.error("Error in getMessages:", error)
-      throw error
+      console.error("Error in getMessages:", error);
+      throw error;
+    }
+  },
+
+  getUserInfo: async (userId: number) => {
+    try {
+      const response = await fetchWithAuth(`/accounts/profile/${userId}/`);
+      const data = await response.json();
+      return {
+        id: data.id,
+        username: data.username || `User ${data.id}`,
+        profile_picture: data.profile_picture,
+      };
+    } catch (error) {
+      console.error(`Error fetching user info for ${userId}:`, error);
+      return {
+        id: userId,
+        username: `User ${userId}`,
+        profile_picture: undefined,
+      };
+    }
+  },
+
+  getMessage: async (id: number) => {
+    try {
+      const response = await fetchWithAuth(`/communications/messages/${id}/`);
+      return response.json();
+    } catch (error) {
+      console.error("Error in getMessage:", error);
+      throw error;
     }
   },
 
@@ -185,102 +252,246 @@ export const communicationsApi = {
     try {
       const response = await fetchWithAuth("/communications/messages/", {
         method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
         body: JSON.stringify(data),
-      })
-      return response.json()
+      });
+      return response.json();
     } catch (error) {
-      console.error("Error in sendMessage:", error)
-      throw error
+      console.error("Error in sendMessage:", error);
+      throw error;
     }
   },
 
-  // Mark messages from a specific user as read
-  markMessagesAsRead: async (senderId: number) => {
+  updateMessage: async (id: number, data: { content?: string; is_read?: boolean }) => {
     try {
-      const response = await fetchWithAuth(`/communications/messages/mark-read/${senderId}/`, {
-        method: "POST",
-      })
-      return response.json()
+      const response = await fetchWithAuth(`/communications/messages/${id}/`, {
+        method: "PATCH",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify(data),
+      });
+      return response.json();
     } catch (error) {
-      console.error("Error marking messages as read:", error)
-      throw error
+      console.error("Error in updateMessage:", error);
+      throw error;
     }
   },
 
-  // Get unread message count
-  getUnreadCount: async () => {
+  deleteMessage: async (id: number) => {
     try {
-      const response = await fetchWithAuth("/communications/messages/unread-count/")
-      return response.json()
+      const response = await fetchWithAuth(`/communications/messages/${id}/`, {
+        method: "DELETE",
+      });
+      return response.ok;
     } catch (error) {
-      console.error("Error getting unread count:", error)
-      return { count: 0 }
+      console.error("Error in deleteMessage:", error);
+      throw error;
+    }
+  },
+
+  getReceivedMessages: async (markRead: boolean = false) => {
+    try {
+      const url = `/communications/messages/received/${markRead ? "?mark_read=true" : ""}`;
+      const response = await fetchWithAuth(url);
+      return response.json();
+    } catch (error) {
+      console.error("Error in getReceivedMessages:", error);
+      throw error;
+    }
+  },
+
+  // Conversations
+  getConversations: async () => {
+    try {
+      const response = await fetchWithAuth("/communications/conversations/");
+      return response.json();
+    } catch (error) {
+      console.error("Error in getConversations:", error);
+      throw error;
+    }
+  },
+
+  getConversation: async (id: number) => {
+    try {
+      const response = await fetchWithAuth(`/communications/conversations/${id}/`);
+      return response.json();
+    } catch (error) {
+      console.error("Error in getConversation:", error);
+      throw error;
+    }
+  },
+
+  getConversationMessages: async (conversationId: number) => {
+    try {
+      const response = await fetchWithAuth(`/communications/conversations/${conversationId}/messages/`);
+      return response.json();
+    } catch (error) {
+      console.error("Error in getConversationMessages:", error);
+      throw error;
     }
   },
 
   // Notifications
   getNotifications: async () => {
-    const response = await fetchWithAuth("/communications/notifications/")
-    return response.json()
+    try {
+      const response = await fetchWithAuth("/communications/notifications/");
+      return response.json();
+    } catch (error) {
+      console.error("Error in getNotifications:", error);
+      throw error;
+    }
+  },
+
+  getNotification: async (id: number) => {
+    try {
+      const response = await fetchWithAuth(`/communications/notifications/${id}/`);
+      return response.json();
+    } catch (error) {
+      console.error("Error in getNotification:", error);
+      throw error;
+    }
   },
 
   markNotificationsAsRead: async () => {
-    const response = await fetchWithAuth("/communications/notifications/mark-read/", {
-      method: "POST",
-    })
-    return response.json()
+    try {
+      const response = await fetchWithAuth("/communications/notifications/mark-read/", {
+        method: "POST",
+      });
+      return response.json();
+    } catch (error) {
+      console.error("Error in markNotificationsAsRead:", error);
+      throw error;
+    }
+  },
+
+  updateNotification: async (id: number, data: { is_read?: boolean }) => {
+    try {
+      const response = await fetchWithAuth(`/communications/notifications/${id}/`, {
+        method: "PATCH",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify(data),
+      });
+      return response.json();
+    } catch (error) {
+      console.error("Error in updateNotification:", error);
+      throw error;
+    }
+  },
+
+  deleteNotification: async (id: number) => {
+    try {
+      const response = await fetchWithAuth(`/communications/notifications/${id}/`, {
+        method: "DELETE",
+      });
+      return response.ok;
+    } catch (error) {
+      console.error("Error in deleteNotification:", error);
+      throw error;
+    }
+  },
+
+  // Utility endpoints
+  getUnreadCount: async () => {
+    try {
+      const response = await fetchWithAuth("/communications/messages/unread-count/");
+      return response.json();
+    } catch (error) {
+      console.error("Error getting unread count:", error);
+      return { count: 0 };
+    }
+  },
+
+  markMessagesAsRead: async (senderId: number) => {
+    try {
+      const response = await fetchWithAuth(`/communications/messages/mark-read/${senderId}/`, {
+        method: "POST",
+      });
+      return response.json();
+    } catch (error) {
+      console.error("Error marking messages as read:", error);
+      throw error;
+    }
   },
 }
 
 // Transactions API
 export const transactionsApi = {
   // Bookings
-  getBookings: async () => {
-    const response = await fetchWithAuth("/transactions/bookings/")
-    return response.json()
+  getBookings: async (providerId?: number) => {
+    const url = providerId 
+      ? `/transactions/bookings/?provider=${providerId}`
+      : '/transactions/bookings/';
+    const response = await fetchWithAuth(url);
+    return response.json();
+  },
+
+  getBooking: async (bookingId: number) => {
+    const response = await fetchWithAuth(`/transactions/bookings/${bookingId}/`);
+    return response.json();
   },
 
   createBooking: async (data: { provider: number; service_date: string }) => {
     const response = await fetchWithAuth("/transactions/bookings/", {
       method: "POST",
       body: JSON.stringify(data),
-    })
-    return response.json()
+    });
+    return response.json();
+  },
+
+  confirmBooking: async (bookingId: number) => {
+    const response = await fetchWithAuth(
+      `/transactions/bookings/${bookingId}/confirm/`,
+      { method: "POST" }
+    );
+    return response.json();
+  },
+
+  cancelBooking: async (bookingId: number) => {
+    const response = await fetchWithAuth(
+      `/transactions/bookings/${bookingId}/cancel/`,
+      { method: "POST" }
+    );
+    return response.json();
   },
 
   // Reports
   getReports: async () => {
-    const response = await fetchWithAuth("/transactions/reports/")
-    return response.json()
+    const response = await fetchWithAuth("/transactions/reports/");
+    return response.json();
   },
 
   submitReport: async (data: { provider: number; description: string }) => {
     const response = await fetchWithAuth("/transactions/reports/", {
       method: "POST",
       body: JSON.stringify(data),
-    })
-    return response.json()
+    });
+    return response.json();
   },
 
   // Favorites
   getFavorites: async () => {
-    const response = await fetchWithAuth("/transactions/favorites/")
-    return response.json()
+    const response = await fetchWithAuth("/transactions/favorites/");
+    return response.json();
   },
 
   addFavorite: async (providerId: number) => {
     const response = await fetchWithAuth("/transactions/favorites/", {
       method: "POST",
       body: JSON.stringify({ provider: providerId }),
-    })
-    return response.json()
+    });
+    return response.json();
   },
 
   removeFavorite: async (favoriteId: number) => {
-    const response = await fetchWithAuth(`/transactions/favorites/${favoriteId}/`, {
-      method: "DELETE",
-    })
-    return response.status === 204
+    const response = await fetchWithAuth(
+      `/transactions/favorites/${favoriteId}/`,
+      { method: "DELETE" }
+    );
+    return response.status === 204;
   },
-}
-
+};

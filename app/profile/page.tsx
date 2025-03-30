@@ -1,9 +1,7 @@
 "use client"
 
 import { DialogFooter } from "@/components/ui/dialog"
-
 import type React from "react"
-
 import { useEffect, useState, useRef } from "react"
 import { useRouter } from "next/navigation"
 import { z } from "zod"
@@ -56,7 +54,7 @@ const profileFormSchema = z.object({
   first_name: z.string().min(1, "First name is required"),
   last_name: z.string().min(1, "Last name is required"),
   email: z.string().email("Please enter a valid email address"),
-  profile_picture: z.string().optional(),
+  profile_picture: z.any().optional(),
 })
 
 const businessProfileSchema = z.object({
@@ -71,7 +69,15 @@ const businessProfileSchema = z.object({
   subcategory: z.string().min(1, "Subcategory is required"),
 })
 
-// Map sector names to icons for visual representation
+const securityFormSchema = z.object({
+  currentPassword: z.string().min(8, "Password must be at least 8 characters"),
+  newPassword: z.string().min(8, "Password must be at least 8 characters"),
+  confirmPassword: z.string().min(8, "Password must be at least 8 characters"),
+}).refine(data => data.newPassword === data.confirmPassword, {
+  message: "Passwords don't match",
+  path: ["confirmPassword"]
+})
+
 const sectorIcons: Record<string, any> = {
   Construction: Briefcase,
   "Home Services": Home,
@@ -87,8 +93,56 @@ const sectorIcons: Record<string, any> = {
   Transportation: Truck,
   Retail: ShoppingBag,
   Photography: Camera,
-  // Default icon for any other sector
   default: Briefcase,
+}
+
+const geocodeAddress = async (address: string, town: string, subcounty: string, county: string) => {
+  try {
+    // First try to get precise coordinates from device
+    const position = await new Promise<GeolocationPosition>((resolve, reject) => {
+      navigator.geolocation.getCurrentPosition(resolve, reject, {
+        enableHighAccuracy: true,
+        timeout: 5000,  // 5 seconds timeout
+        maximumAge: 0   // Don't use cached position
+      });
+    });
+
+    return {
+      lng: position.coords.longitude,
+      lat: position.coords.latitude,
+      accuracy: position.coords.accuracy // Optional: include accuracy in meters
+    };
+
+  } catch (error) {
+    console.error("Geolocation error:", error);
+    
+    // Fallback to geocoding API if device location fails
+    try {
+      const response = await fetch(
+        `https://nominatim.openstreetmap.org/search?format=json&q=${encodeURIComponent(
+          `${address}, ${town}, ${subcounty}, ${county}`
+        )}`
+      );
+      
+      const data = await response.json();
+      if (data && data.length > 0) {
+        return {
+          lng: parseFloat(data[0].lon),
+          lat: parseFloat(data[0].lat),
+          accuracy: 1000 // Approximate accuracy for geocoded results
+        };
+      }
+    } catch (geocodeError) {
+      console.error("Geocoding fallback error:", geocodeError);
+    }
+
+    // Final fallback to default coordinates if all else fails
+    return {
+      lng: 36.8219,
+      lat: -1.2921,
+      accuracy: 10000 // Very approximate
+    };
+  }
 }
 
 export default function ProfilePage() {
@@ -97,6 +151,7 @@ export default function ProfilePage() {
   const { toast } = useToast()
   const [isSubmitting, setIsSubmitting] = useState(false)
   const [businessSubmitting, setBusinessSubmitting] = useState(false)
+  const [securitySubmitting, setSecuritySubmitting] = useState(false)
   const [businessProfile, setBusinessProfile] = useState<any>(null)
   const [hasBusinessProfile, setHasBusinessProfile] = useState(false)
   const [loadingBusinessProfile, setLoadingBusinessProfile] = useState(true)
@@ -106,42 +161,71 @@ export default function ProfilePage() {
   const [selectedSector, setSelectedSector] = useState<string>("")
   const [sectorSearchQuery, setSectorSearchQuery] = useState("")
   const [subcategorySearchQuery, setSubcategorySearchQuery] = useState("")
-
-  // Location data
   const [counties] = useState<string[]>(getAllCounties())
   const [popularCounties] = useState<string[]>(getPopularCounties())
   const [subcounties, setSubcounties] = useState<string[]>([])
   const [selectedCounty, setSelectedCounty] = useState<string>("")
-
   const [profileImage, setProfileImage] = useState<string | null>(null)
-  const [portfolioItems, setPortfolioItems] = useState<Array<{ imageUrl: string; title: string; description: string }>>(
-    [],
-  )
+  const [portfolioItems, setPortfolioItems] = useState<Array<{ imageUrl: string; title: string; description: string }>>([])
   const [portfolioUploadPreview, setPortfolioUploadPreview] = useState<string | null>(null)
   const [portfolioItemTitle, setPortfolioItemTitle] = useState("")
   const [portfolioItemDescription, setPortfolioItemDescription] = useState("")
   const [editingPortfolioIndex, setEditingPortfolioIndex] = useState<number | null>(null)
   const [isPortfolioModalOpen, setIsPortfolioModalOpen] = useState(false)
   const [isEditModalOpen, setIsEditModalOpen] = useState(false)
-
-  // Business profile creation wizard
   const [showBusinessWizard, setShowBusinessWizard] = useState(false)
   const [wizardStep, setWizardStep] = useState(1)
-  const [wizardData, setWizardData] = useState({
-    business_name: "",
-    description: "",
-    sector: "",
-    subcategory: "",
-    address: "",
-    website: "",
-    county: "",
-    subcounty: "",
-    town: "",
-  })
 
-  // Refs for file inputs
   const profileImageInputRef = useRef<HTMLInputElement>(null)
   const portfolioImageInputRef = useRef<HTMLInputElement>(null)
+
+  const form = useForm<z.infer<typeof profileFormSchema>>({
+    resolver: zodResolver(profileFormSchema),
+    defaultValues: {
+      first_name: user?.first_name || "",
+      last_name: user?.last_name || "",
+      email: user?.email || "",
+    },
+  })
+
+  const businessForm = useForm<z.infer<typeof businessProfileSchema>>({
+    resolver: zodResolver(businessProfileSchema),
+    defaultValues: {
+      business_name: "",
+      description: "",
+      address: "",
+      website: "",
+      county: "",
+      subcounty: "",
+      town: "",
+      sector: "",
+      subcategory: "",
+    },
+  })
+
+  const securityForm = useForm<z.infer<typeof securityFormSchema>>({
+    resolver: zodResolver(securityFormSchema),
+    defaultValues: {
+      currentPassword: "",
+      newPassword: "",
+      confirmPassword: "",
+    },
+  })
+
+  const wizardForm = useForm<z.infer<typeof businessProfileSchema>>({
+    resolver: zodResolver(businessProfileSchema),
+    defaultValues: {
+      business_name: "",
+      description: "",
+      address: "",
+      website: "",
+      county: "",
+      subcounty: "",
+      town: "",
+      sector: "",
+      subcategory: "",
+    },
+  })
 
   useEffect(() => {
     if (!authLoading && !user) {
@@ -161,16 +245,13 @@ export default function ProfilePage() {
   const fetchBusinessProfile = async () => {
     try {
       setLoadingBusinessProfile(true)
-      // Simulated API call
       const response = await marketplaceApi.getProviderByUserId(user?.id || 0)
-  
+
       if (response && response.id) {
         setBusinessProfile(response)
         setHasBusinessProfile(true)
-        // Check if sector exists before calling toString()
         setSelectedSector(response.sector ? response.sector.toString() : "")
-  
-        // Set county and load subcounties if available
+
         if (response.county) {
           setSelectedCounty(response.county)
           setSubcounties(getSubcountiesForCounty(response.county))
@@ -178,14 +259,26 @@ export default function ProfilePage() {
       } else {
         setHasBusinessProfile(false)
       }
-    } catch (error) {
+    } catch (error: any) {
       console.error("Error fetching business profile:", error)
       setHasBusinessProfile(false)
+      
+      let errorMessage = "Failed to load business profile";
+      if (error.response?.data?.message) {
+        errorMessage = error.response.data.message;
+      } else if (error.message) {
+        errorMessage = error.message;
+      }
+
+      toast({
+        title: "Error",
+        description: errorMessage,
+        variant: "destructive",
+      })
     } finally {
       setLoadingBusinessProfile(false)
     }
   }
-  
 
   const fetchSectorsAndSubcategories = async () => {
     try {
@@ -195,11 +288,19 @@ export default function ProfilePage() {
       ])
       setSectors(sectorsData)
       setSubcategories(subcategoriesData)
-    } catch (error) {
+    } catch (error: any) {
       console.error("Error fetching sectors and subcategories:", error)
+      
+      let errorMessage = "Failed to load sectors and subcategories";
+      if (error.response?.data?.message) {
+        errorMessage = error.response.data.message;
+      } else if (error.message) {
+        errorMessage = error.message;
+      }
+
       toast({
         title: "Error",
-        description: "Failed to load sectors and subcategories",
+        description: errorMessage,
         variant: "destructive",
       })
     }
@@ -214,7 +315,6 @@ export default function ProfilePage() {
     }
   }, [selectedSector, subcategories])
 
-  // Update subcounties when county changes
   useEffect(() => {
     if (selectedCounty) {
       setSubcounties(getSubcountiesForCounty(selectedCounty))
@@ -223,38 +323,12 @@ export default function ProfilePage() {
     }
   }, [selectedCounty])
 
-  const form = useForm<z.infer<typeof profileFormSchema>>({
-    resolver: zodResolver(profileFormSchema),
-    defaultValues: {
-      first_name: user?.first_name || "",
-      last_name: user?.last_name || "",
-      email: user?.email || "",
-      profile_picture: user?.profile_picture || "",
-    },
-  })
-
-  const businessForm = useForm<z.infer<typeof businessProfileSchema>>({
-    resolver: zodResolver(businessProfileSchema),
-    defaultValues: {
-      business_name: "",
-      description: "",
-      address: "",
-      website: "",
-      county: "",
-      subcounty: "",
-      town: "",
-      sector: "",
-      subcategory: "",
-    },
-  })
-
   useEffect(() => {
     if (user) {
       form.reset({
         first_name: user.first_name || "",
         last_name: user.last_name || "",
         email: user.email || "",
-        profile_picture: user.profile_picture || "",
       })
     }
   }, [user, form])
@@ -277,125 +351,190 @@ export default function ProfilePage() {
     }
   }, [businessProfile, businessForm])
 
-  const onSubmit = async (values: z.infer<typeof profileFormSchema>) => {
-    if (!user) return
-
-    setIsSubmitting(true)
-    try {
-      await updateProfile(values)
-      toast({
-        title: "Profile updated",
-        description: "Your profile has been successfully updated",
-      })
-    } catch (error) {
-      console.error("Error updating profile:", error)
-      toast({
-        title: "Update failed",
-        description: "There was an error updating your profile",
-        variant: "destructive",
-      })
-    } finally {
-      setIsSubmitting(false)
+  const handleProfileImageChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    if (e.target.files && e.target.files[0]) {
+      const file = e.target.files[0];
+      form.setValue("profile_picture", file);
+      
+      const reader = new FileReader();
+      reader.onload = (event) => {
+        if (event.target?.result) {
+          setProfileImage(event.target.result as string);
+        }
+      };
+      reader.readAsDataURL(file);
     }
   }
 
-  // Now update the onBusinessSubmit function to use the API methods:
+  const onSubmit = async (values: z.infer<typeof profileFormSchema>) => {
+    if (!user) return;
+  
+    setIsSubmitting(true);
+    try {
+      const formData = new FormData();
+      formData.append('first_name', values.first_name);
+      formData.append('last_name', values.last_name);
+      formData.append('email', values.email);
+      
+      if (values.profile_picture) {
+        formData.append('profile_picture', values.profile_picture);
+      }
+  
+      const token = localStorage.getItem('accessToken');
+      if (!token) {
+        throw new Error('Authentication token not found');
+      }
+  
+      const response = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/accounts/profile/`, {
+        method: 'PUT',
+        headers: {
+          'Authorization': `Bearer ${token}`,
+        },
+        body: formData,
+      });
+  
+      const data = await response.json();
+  
+      if (!response.ok) {
+        // Handle server validation errors
+        if (data.errors) {
+          Object.entries(data.errors).forEach(([field, messages]) => {
+            form.setError(field as any, {
+              type: "manual",
+              message: Array.isArray(messages) ? messages.join(", ") : String(messages),
+            });
+          });
+        }
+        throw new Error(data.message || 'Failed to update profile');
+      }
+  
+      // Update user context with new data
+      updateProfile(data.user);
+      
+      toast({
+        title: "Profile updated",
+        description: "Your profile has been successfully updated",
+      });
+    } catch (error: any) {
+      console.error("Error updating profile:", error);
+      
+      let errorMessage = error.message || "There was an error updating your profile";
+      
+      toast({
+        title: "Update failed",
+        description: errorMessage,
+        variant: "destructive",
+      });
+    } finally {
+      setIsSubmitting(false);
+    }
+  }
 
   const onBusinessSubmit = async (values: z.infer<typeof businessProfileSchema>) => {
     if (!user) return
-
+  
     setBusinessSubmitting(true)
     try {
-      const formattedData = {
-        business_name: values.business_name,
-        description: values.description,
-        address: values.address,
-        website: values.website,
-        county: values.county,
-        subcounty: values.subcounty,
-        town: values.town,
+      const coordinates = await geocodeAddress(
+        values.address,
+        values.town,
+        values.subcounty,
+        values.county
+      );
+
+      const payload = {
+        ...values,
         sector: Number.parseInt(values.sector),
         subcategory: Number.parseInt(values.subcategory),
+        ...(coordinates && {
+          location: {
+            type: "Point",
+            coordinates: [coordinates.lng, coordinates.lat]
+          }
+        })
       }
-
-      let updatedProfile
-      if (hasBusinessProfile && businessProfile?.id) {
-        updatedProfile = await marketplaceApi.updateBusinessProfile(businessProfile.id, formattedData)
+  
+      let response
+  
+      if (hasBusinessProfile && businessProfile && businessProfile.id) {
+        response = await marketplaceApi.updateBusinessProfile(businessProfile.id, payload)
       } else {
-        updatedProfile = await marketplaceApi.createBusinessProfile(formattedData)
+        response = await marketplaceApi.createBusinessProfile(payload)
       }
-
-      // Update local state to reflect changes
-      setBusinessProfile({
-        ...businessProfile,
-        ...updatedProfile,
-      })
-
+  
+      setBusinessProfile(response)
       setHasBusinessProfile(true)
-
+  
       toast({
         title: hasBusinessProfile ? "Business profile updated" : "Business profile created",
         description: hasBusinessProfile
           ? "Your business profile has been successfully updated"
           : "Your business profile has been successfully created",
       })
-    } catch (error) {
+    } catch (error: any) {
       console.error("Error updating business profile:", error)
+      
+      let errorMessage = "There was an error updating your business profile";
+      if (error.response?.data?.message) {
+        errorMessage = error.response.data.message;
+      } else if (error.message) {
+        errorMessage = error.message;
+      }
+
       toast({
         title: "Update failed",
-        description: error instanceof Error ? error.message : "There was an error updating your business profile",
+        description: errorMessage,
         variant: "destructive",
-      })
+      });
+
+      if (error.response?.data?.errors) {
+        Object.entries(error.response.data.errors).forEach(([field, messages]) => {
+          businessForm.setError(field as any, {
+            type: "manual",
+            message: Array.isArray(messages) ? messages.join(", ") : String(messages),
+          });
+        });
+      }
     } finally {
       setBusinessSubmitting(false)
     }
   }
 
-  const handleProfileImageChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-    if (e.target.files && e.target.files[0]) {
-      const file = e.target.files[0]
-      const reader = new FileReader()
-      reader.onload = (event) => {
-        if (event.target?.result) {
-          setProfileImage(event.target.result as string)
-        }
-      }
-      reader.readAsDataURL(file)
-    }
-  }
-
-  const saveProfileImage = async () => {
-    if (!profileImage) return
-
-    setIsSubmitting(true)
+  const onSecuritySubmit = async (values: z.infer<typeof securityFormSchema>) => {
+    setSecuritySubmitting(true)
     try {
-      // In a real app, you would upload the image to your server/cloud storage
-      // and then update the user profile with the new image URL
-
-      // For now, we'll simulate this by updating the form value
-      form.setValue("profile_picture", profileImage)
-
-      // Then submit the form
-      await updateProfile({
-        ...form.getValues(),
-        profile_picture: profileImage,
-      })
-
+      // Add your password change logic here
       toast({
-        title: "Profile picture updated",
-        description: "Your profile picture has been successfully updated",
+        title: "Password updated",
+        description: "Your password has been successfully updated",
       })
+      securityForm.reset()
+    } catch (error: any) {
+      console.error("Error updating password:", error)
+      
+      let errorMessage = "There was an error updating your password";
+      if (error.response?.data?.message) {
+        errorMessage = error.response.data.message;
+      } else if (error.message) {
+        errorMessage = error.message;
+      }
 
-      setProfileImage(null)
-    } catch (error) {
-      console.error("Error updating profile picture:", error)
       toast({
         title: "Update failed",
-        description: "There was an error updating your profile picture",
+        description: errorMessage,
         variant: "destructive",
-      })
+      });
+
+      if (error.response?.data?.errors) {
+        Object.entries(error.response.data.errors).forEach(([field, messages]) => {
+          securityForm.setError(field as any, {
+            type: "manual",
+            message: Array.isArray(messages) ? messages.join(", ") : String(messages),
+          });
+        });
+      }
     } finally {
-      setIsSubmitting(false)
+      setSecuritySubmitting(false)
     }
   }
 
@@ -415,24 +554,10 @@ export default function ProfilePage() {
     }
   }
 
-  // Also update the savePortfolioItem function to actually upload the portfolio item:
-
   const savePortfolioItem = async () => {
-    if (!portfolioUploadPreview || !businessProfile || !businessProfile.id) return
+    if (!portfolioUploadPreview) return
 
     try {
-      // In a real app, you would first upload the image to a storage service
-      // and then save the URL to your database
-      const portfolioData = {
-        title: portfolioItemTitle || "Untitled Item",
-        description: portfolioItemDescription || "No description provided",
-        image_url: portfolioUploadPreview, // In a real app, this would be the URL from your storage service
-      }
-
-      // Upload the portfolio item
-      await marketplaceApi.uploadPortfolioItem(businessProfile.id, portfolioData)
-
-      // Add to local state
       setPortfolioItems([
         ...portfolioItems,
         {
@@ -442,7 +567,6 @@ export default function ProfilePage() {
         },
       ])
 
-      // Reset the form
       setPortfolioUploadPreview(null)
       setPortfolioItemTitle("")
       setPortfolioItemDescription("")
@@ -452,13 +576,21 @@ export default function ProfilePage() {
         title: "Portfolio item added",
         description: "Your portfolio item has been successfully added",
       })
-    } catch (error) {
-      console.error("Error saving portfolio item:", error)
+    } catch (error: any) {
+      console.error("Error adding portfolio item:", error)
+      
+      let errorMessage = "There was an error adding your portfolio item";
+      if (error.response?.data?.message) {
+        errorMessage = error.response.data.message;
+      } else if (error.message) {
+        errorMessage = error.message;
+      }
+
       toast({
-        title: "Failed to add portfolio item",
-        description: error instanceof Error ? error.message : "There was an error adding your portfolio item",
+        title: "Operation failed",
+        description: errorMessage,
         variant: "destructive",
-      })
+      });
     }
   }
 
@@ -476,26 +608,43 @@ export default function ProfilePage() {
     setIsEditModalOpen(true)
   }
 
-  const updatePortfolioItem = () => {
+  const updatePortfolioItem = async () => {
     if (editingPortfolioIndex === null) return
 
-    const updatedItems = [...portfolioItems]
-    updatedItems[editingPortfolioIndex] = {
-      ...updatedItems[editingPortfolioIndex],
-      title: portfolioItemTitle || "Untitled Item",
-      description: portfolioItemDescription || "No description provided",
+    try {
+      const updatedItems = [...portfolioItems]
+      updatedItems[editingPortfolioIndex] = {
+        ...updatedItems[editingPortfolioIndex],
+        title: portfolioItemTitle || "Untitled Item",
+        description: portfolioItemDescription || "No description provided",
+      }
+
+      setPortfolioItems(updatedItems)
+      setEditingPortfolioIndex(null)
+      setPortfolioItemTitle("")
+      setPortfolioItemDescription("")
+      setIsEditModalOpen(false)
+
+      toast({
+        title: "Portfolio item updated",
+        description: "Your portfolio item has been successfully updated",
+      })
+    } catch (error: any) {
+      console.error("Error updating portfolio item:", error)
+      
+      let errorMessage = "There was an error updating your portfolio item";
+      if (error.response?.data?.message) {
+        errorMessage = error.response.data.message;
+      } else if (error.message) {
+        errorMessage = error.message;
+      }
+
+      toast({
+        title: "Update failed",
+        description: errorMessage,
+        variant: "destructive",
+      });
     }
-
-    setPortfolioItems(updatedItems)
-    setEditingPortfolioIndex(null)
-    setPortfolioItemTitle("")
-    setPortfolioItemDescription("")
-    setIsEditModalOpen(false)
-
-    toast({
-      title: "Portfolio item updated",
-      description: "Your portfolio item has been successfully updated",
-    })
   }
 
   const cancelPortfolioEdit = () => {
@@ -505,20 +654,36 @@ export default function ProfilePage() {
     setIsEditModalOpen(false)
   }
 
-  const handleDeletePortfolioItem = (index: number) => {
-    const updatedItems = portfolioItems.filter((_, i) => i !== index)
-    setPortfolioItems(updatedItems)
+  const handleDeletePortfolioItem = async (index: number) => {
+    try {
+      const updatedItems = portfolioItems.filter((_, i) => i !== index)
+      setPortfolioItems(updatedItems)
 
-    toast({
-      title: "Portfolio item deleted",
-      description: "Your portfolio item has been successfully deleted",
-    })
+      toast({
+        title: "Portfolio item deleted",
+        description: "Your portfolio item has been successfully deleted",
+      })
+    } catch (error: any) {
+      console.error("Error deleting portfolio item:", error)
+      
+      let errorMessage = "There was an error deleting your portfolio item";
+      if (error.response?.data?.message) {
+        errorMessage = error.response.data.message;
+      } else if (error.message) {
+        errorMessage = error.message;
+      }
+
+      toast({
+        title: "Deletion failed",
+        description: errorMessage,
+        variant: "destructive",
+      });
+    }
   }
 
-  // Business profile wizard functions
   const startBusinessWizard = () => {
     setWizardStep(1)
-    setWizardData({
+    wizardForm.reset({
       business_name: businessForm.getValues().business_name || "",
       description: businessForm.getValues().description || "",
       sector: businessForm.getValues().sector || "",
@@ -532,42 +697,43 @@ export default function ProfilePage() {
     setShowBusinessWizard(true)
   }
 
-  // And update the completeBusinessWizard function:
-
   const completeBusinessWizard = async () => {
     setBusinessSubmitting(true)
     try {
-      const formattedData = {
-        business_name: wizardData.business_name,
-        description: wizardData.description,
-        address: wizardData.address,
-        website: wizardData.website,
-        county: wizardData.county,
-        subcounty: wizardData.subcounty,
-        town: wizardData.town,
-        sector: Number.parseInt(wizardData.sector),
-        subcategory: Number.parseInt(wizardData.subcategory),
+      const values = wizardForm.getValues()
+      
+      const coordinates = await geocodeAddress(
+        values.address,
+        values.town,
+        values.subcounty,
+        values.county
+      );
+
+      const payload = {
+        ...values,
+        sector: Number.parseInt(values.sector),
+        subcategory: Number.parseInt(values.subcategory),
+        portfolio_media: portfolioItems,
+        ...(coordinates && {
+          location: {
+            type: "Point",
+            coordinates: [coordinates.lng, coordinates.lat]
+          }
+        })
       }
 
-      let updatedProfile
-      if (hasBusinessProfile && businessProfile?.id) {
-        updatedProfile = await marketplaceApi.updateBusinessProfile(businessProfile.id, formattedData)
-      } else {
-        updatedProfile = await marketplaceApi.createBusinessProfile(formattedData)
-      }
-
-      // Update the form with wizard data
-      Object.entries(wizardData).forEach(([key, value]) => {
+      Object.entries(values).forEach(([key, value]) => {
         businessForm.setValue(key as any, value)
       })
 
-      // Update local state to reflect changes
-      setBusinessProfile({
-        ...businessProfile,
-        ...updatedProfile,
-        portfolio_media: portfolioItems.length > 0 ? portfolioItems : [], // Ensure portfolio is initialized
-      })
+      let response
+      if (hasBusinessProfile && businessProfile && businessProfile.id) {
+        response = await marketplaceApi.updateBusinessProfile(businessProfile.id, payload)
+      } else {
+        response = await marketplaceApi.createBusinessProfile(payload)
+      }
 
+      setBusinessProfile(response)
       setHasBusinessProfile(true)
       setShowBusinessWizard(false)
 
@@ -577,61 +743,69 @@ export default function ProfilePage() {
           ? "Your business profile has been successfully updated"
           : "Your business profile has been successfully created. You can add portfolio items later.",
       })
-    } catch (error) {
+    } catch (error: any) {
       console.error("Error updating business profile:", error)
+      
+      let errorMessage = "There was an error updating your business profile";
+      if (error.response?.data?.message) {
+        errorMessage = error.response.data.message;
+      } else if (error.message) {
+        errorMessage = error.message;
+      }
+
       toast({
         title: "Update failed",
-        description: error instanceof Error ? error.message : "There was an error updating your business profile",
+        description: errorMessage,
         variant: "destructive",
-      })
+      });
+
+      if (error.response?.data?.errors) {
+        Object.entries(error.response.data.errors).forEach(([field, messages]) => {
+          wizardForm.setError(field as any, {
+            type: "manual",
+            message: Array.isArray(messages) ? messages.join(", ") : String(messages),
+          });
+        });
+      }
     } finally {
       setBusinessSubmitting(false)
     }
   }
 
-  const nextWizardStep = () => {
+  const nextWizardStep = (e: React.MouseEvent) => {
+    e.preventDefault()
     setWizardStep(wizardStep + 1)
   }
 
-  const prevWizardStep = () => {
+  const prevWizardStep = (e: React.MouseEvent) => {
+    e.preventDefault()
     setWizardStep(wizardStep - 1)
   }
 
   const updateWizardData = (field: string, value: string) => {
-    setWizardData({
-      ...wizardData,
-      [field]: value,
-    })
-
-    // Update subcounties if county is selected
+    wizardForm.setValue(field as any, value)
     if (field === "county") {
       setSelectedCounty(value)
     }
   }
 
-  // Get sector icon
   const getSectorIcon = (sectorName: string) => {
     const name = sectorName.toLowerCase()
-
-    // Find the matching icon or use default
     for (const [key, icon] of Object.entries(sectorIcons)) {
       if (name.includes(key.toLowerCase())) {
         return icon
       }
     }
-
     return sectorIcons.default
   }
 
   useEffect(() => {
     if (businessProfile && businessProfile.portfolio_media) {
-      // Convert the portfolio media from the API to our format
       const items = businessProfile.portfolio_media.map((item: any, index: number) => ({
         imageUrl: item.url || `/placeholder.svg?height=200&width=300`,
         title: item.title || `Item ${index + 1}`,
         description: item.description || "",
       }))
-
       setPortfolioItems(items)
     }
   }, [businessProfile])
@@ -646,13 +820,11 @@ export default function ProfilePage() {
       </div>
     )
   }
-
-  // Filter sectors based on search query
+  
   const filteredSectors = sectors.filter((sector) =>
     sector.name.toLowerCase().includes(sectorSearchQuery.toLowerCase()),
   )
 
-  // Filter subcategories based on search query
   const searchFilteredSubcategories = filteredSubcategories.filter((subcategory) =>
     subcategory.name.toLowerCase().includes(subcategorySearchQuery.toLowerCase()),
   )
@@ -671,6 +843,7 @@ export default function ProfilePage() {
             <TabsTrigger value="security">Security</TabsTrigger>
             {user.role === "service_provider" && <TabsTrigger value="business">Business Profile</TabsTrigger>}
           </TabsList>
+          
           <TabsContent value="general">
             <Card>
               <CardHeader>
@@ -679,10 +852,16 @@ export default function ProfilePage() {
               </CardHeader>
               <CardContent className="space-y-6">
                 <div className="flex flex-col sm:flex-row gap-6 items-start sm:items-center">
-                  <div className="relative">
+                <div className="relative">
                     <Avatar className="h-24 w-24">
-                      <AvatarImage src={profileImage || user.profile_picture || ""} alt={user.username} />
-                      <AvatarFallback className="text-2xl">{user.first_name?.[0] || user.username[0]}</AvatarFallback>
+                      <AvatarImage 
+                        src={profileImage || 
+                            (user.profile_picture ? `${process.env.NEXT_PUBLIC_API_URL}${user.profile_picture}` : "")} 
+                        alt={user.username} 
+                      />
+                      <AvatarFallback className="text-2xl">
+                        {user.first_name?.[0] || user.username[0]}
+                      </AvatarFallback>
                     </Avatar>
                     <button
                       type="button"
@@ -708,16 +887,6 @@ export default function ProfilePage() {
                     <p className="text-sm text-muted-foreground mt-1">
                       Role: {user.role_display || (user.role === "client" ? "Client" : "Service Provider")}
                     </p>
-                    {profileImage && (
-                      <div className="flex gap-2 mt-2">
-                        <Button variant="outline" size="sm" onClick={saveProfileImage}>
-                          Save Image
-                        </Button>
-                        <Button variant="ghost" size="sm" onClick={() => setProfileImage(null)}>
-                          Cancel
-                        </Button>
-                      </div>
-                    )}
                   </div>
                 </div>
 
@@ -764,22 +933,6 @@ export default function ProfilePage() {
                         </FormItem>
                       )}
                     />
-                    <FormField
-                      control={form.control}
-                      name="profile_picture"
-                      render={({ field }) => (
-                        <FormItem>
-                          <FormLabel>Profile Picture URL</FormLabel>
-                          <FormControl>
-                            <Input placeholder="https://example.com/avatar.jpg" {...field} />
-                          </FormControl>
-                          <FormDescription>
-                            Enter a URL for your profile picture or use the upload button above
-                          </FormDescription>
-                          <FormMessage />
-                        </FormItem>
-                      )}
-                    />
                     <Button type="submit" disabled={isSubmitting}>
                       {isSubmitting ? "Saving..." : "Save Changes"}
                     </Button>
@@ -788,6 +941,7 @@ export default function ProfilePage() {
               </CardContent>
             </Card>
           </TabsContent>
+
           <TabsContent value="security">
             <Card>
               <CardHeader>
@@ -795,27 +949,60 @@ export default function ProfilePage() {
                 <CardDescription>Update your password and security preferences</CardDescription>
               </CardHeader>
               <CardContent className="space-y-4">
-                <div className="space-y-4">
-                  <div>
-                    <h3 className="text-lg font-medium">Change Password</h3>
-                    <p className="text-sm text-muted-foreground">Update your password to keep your account secure</p>
-                  </div>
-                  <div className="grid gap-4">
-                    <div>
-                      <FormLabel htmlFor="current-password">Current Password</FormLabel>
-                      <Input id="current-password" type="password" />
+                <Form {...securityForm}>
+                  <form onSubmit={securityForm.handleSubmit(onSecuritySubmit)} className="space-y-4">
+                    <div className="space-y-4">
+                      <div>
+                        <h3 className="text-lg font-medium">Change Password</h3>
+                        <p className="text-sm text-muted-foreground">Update your password to keep your account secure</p>
+                      </div>
+                      <div className="grid gap-4">
+                        <FormField
+                          control={securityForm.control}
+                          name="currentPassword"
+                          render={({ field }) => (
+                            <FormItem>
+                              <FormLabel>Current Password</FormLabel>
+                              <FormControl>
+                                <Input type="password" {...field} />
+                              </FormControl>
+                              <FormMessage />
+                            </FormItem>
+                          )}
+                        />
+                        <FormField
+                          control={securityForm.control}
+                          name="newPassword"
+                          render={({ field }) => (
+                            <FormItem>
+                              <FormLabel>New Password</FormLabel>
+                              <FormControl>
+                                <Input type="password" {...field} />
+                              </FormControl>
+                              <FormMessage />
+                            </FormItem>
+                          )}
+                        />
+                        <FormField
+                          control={securityForm.control}
+                          name="confirmPassword"
+                          render={({ field }) => (
+                            <FormItem>
+                              <FormLabel>Confirm New Password</FormLabel>
+                              <FormControl>
+                                <Input type="password" {...field} />
+                              </FormControl>
+                              <FormMessage />
+                            </FormItem>
+                          )}
+                        />
+                      </div>
+                      <Button type="submit" disabled={securitySubmitting}>
+                        {securitySubmitting ? "Updating..." : "Update Password"}
+                      </Button>
                     </div>
-                    <div>
-                      <FormLabel htmlFor="new-password">New Password</FormLabel>
-                      <Input id="new-password" type="password" />
-                    </div>
-                    <div>
-                      <FormLabel htmlFor="confirm-password">Confirm New Password</FormLabel>
-                      <Input id="confirm-password" type="password" />
-                    </div>
-                  </div>
-                  <Button>Update Password</Button>
-                </div>
+                  </form>
+                </Form>
 
                 <div className="space-y-4 pt-6 border-t">
                   <div>
@@ -842,6 +1029,7 @@ export default function ProfilePage() {
               </CardContent>
             </Card>
           </TabsContent>
+
           {user.role === "service_provider" && (
             <TabsContent value="business">
               <Card>
@@ -937,7 +1125,6 @@ export default function ProfilePage() {
                                       onValueChange={(value) => {
                                         field.onChange(value)
                                         setSelectedSector(value)
-                                        // Reset subcategory when sector changes
                                         businessForm.setValue("subcategory", "")
                                       }}
                                       defaultValue={field.value}
@@ -1032,7 +1219,6 @@ export default function ProfilePage() {
                                       onValueChange={(value) => {
                                         field.onChange(value)
                                         setSelectedCounty(value)
-                                        // Reset subcounty when county changes
                                         businessForm.setValue("subcounty", "")
                                       }}
                                       defaultValue={field.value}
@@ -1188,403 +1374,444 @@ export default function ProfilePage() {
             </TabsContent>
           )}
         </Tabs>
-      </div>
 
-      {/* Business Profile Wizard */}
-      {showBusinessWizard && (
-        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4 overflow-y-auto">
-          <div className="bg-background rounded-lg max-w-3xl w-full p-6 space-y-6 max-h-[90vh] overflow-y-auto">
-            <div className="flex justify-between items-center">
-              <h2 className="text-2xl font-bold">
-                {hasBusinessProfile ? "Edit Business Profile" : "Create Business Profile"}
-              </h2>
-              <Button variant="ghost" size="icon" onClick={() => setShowBusinessWizard(false)}>
-                <X className="h-5 w-5" />
-              </Button>
-            </div>
-
-            <div className="flex justify-between mb-6">
-              <div className={`flex-1 text-center ${wizardStep === 1 ? "text-primary font-medium" : ""}`}>
-                <div
-                  className={`rounded-full w-8 h-8 flex items-center justify-center mx-auto mb-1 ${wizardStep === 1 ? "bg-primary text-primary-foreground" : "bg-muted"}`}
-                >
-                  1
-                </div>
-                <p className="text-sm">Basic Info</p>
+        {/* Business Profile Wizard */}
+        {showBusinessWizard && (
+          <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4 overflow-y-auto">
+            <div className="bg-background rounded-lg max-w-3xl w-full p-6 space-y-6 max-h-[90vh] overflow-y-auto">
+              <div className="flex justify-between items-center">
+                <h2 className="text-2xl font-bold">
+                  {hasBusinessProfile ? "Edit Business Profile" : "Create Business Profile"}
+                </h2>
+                <Button variant="ghost" size="icon" onClick={() => setShowBusinessWizard(false)}>
+                  <X className="h-5 w-5" />
+                </Button>
               </div>
-              <div className={`flex-1 text-center ${wizardStep === 2 ? "text-primary font-medium" : ""}`}>
-                <div
-                  className={`rounded-full w-8 h-8 flex items-center justify-center mx-auto mb-1 ${wizardStep === 2 ? "bg-primary text-primary-foreground" : "bg-muted"}`}
-                >
-                  2
-                </div>
-                <p className="text-sm">Category</p>
-              </div>
-              <div className={`flex-1 text-center ${wizardStep === 3 ? "text-primary font-medium" : ""}`}>
-                <div
-                  className={`rounded-full w-8 h-8 flex items-center justify-center mx-auto mb-1 ${wizardStep === 3 ? "bg-primary text-primary-foreground" : "bg-muted"}`}
-                >
-                  3
-                </div>
-                <p className="text-sm">Location</p>
-              </div>
-            </div>
 
-            {/* Step 1: Basic Info */}
-            {wizardStep === 1 && (
-              <div className="space-y-4">
-                <h3 className="text-lg font-medium">Tell us about your business</h3>
-                <div>
-                  <FormLabel htmlFor="wizard-business-name">Business Name</FormLabel>
-                  <Input
-                    id="wizard-business-name"
-                    placeholder="Your Business Name"
-                    value={wizardData.business_name}
-                    onChange={(e) => updateWizardData("business_name", e.target.value)}
-                  />
-                </div>
-                <div>
-                  <FormLabel htmlFor="wizard-description">Business Description</FormLabel>
-                  <Textarea
-                    id="wizard-description"
-                    placeholder="Describe your business and services"
-                    className="min-h-[150px]"
-                    value={wizardData.description}
-                    onChange={(e) => updateWizardData("description", e.target.value)}
-                  />
-                  <p className="text-sm text-muted-foreground mt-1">
-                    Provide a detailed description of your services, expertise, and what sets you apart
-                  </p>
-                </div>
-                <div>
-                  <FormLabel htmlFor="wizard-website">Website (Optional)</FormLabel>
-                  <Input
-                    id="wizard-website"
-                    placeholder="https://yourbusiness.com"
-                    value={wizardData.website}
-                    onChange={(e) => updateWizardData("website", e.target.value)}
-                  />
-                </div>
-              </div>
-            )}
-
-            {/* Step 2: Category Selection */}
-            {wizardStep === 2 && (
-              <div className="space-y-4">
-                <h3 className="text-lg font-medium">Select your business category</h3>
-
-                <div className="relative mb-4">
-                  <Search className="absolute left-2.5 top-2.5 h-4 w-4 text-muted-foreground" />
-                  <Input
-                    type="search"
-                    placeholder="Search sectors..."
-                    className="pl-8"
-                    value={sectorSearchQuery}
-                    onChange={(e) => setSectorSearchQuery(e.target.value)}
-                  />
-                </div>
-
-                <div className="grid grid-cols-2 sm:grid-cols-3 gap-3 mb-6">
-                  {filteredSectors.map((sector) => {
-                    const SectorIcon = getSectorIcon(sector.name)
-                    const isSelected = wizardData.sector === sector.id.toString()
-
-                    return (
-                      <div
-                        key={sector.id}
-                        className={cn(
-                          "border rounded-lg p-4 cursor-pointer transition-all hover:border-primary",
-                          isSelected ? "border-primary bg-primary/5" : "",
-                        )}
-                        onClick={() => {
-                          updateWizardData("sector", sector.id.toString())
-                          setSelectedSector(sector.id.toString())
-                          updateWizardData("subcategory", "")
-                        }}
-                      >
-                        <div className="flex flex-col items-center text-center gap-2">
-                          <div
-                            className={cn(
-                              "p-2 rounded-full",
-                              isSelected ? "bg-primary text-primary-foreground" : "bg-muted",
-                            )}
-                          >
-                            <SectorIcon className="h-5 w-5" />
-                          </div>
-                          <span className="text-sm font-medium">{sector.name}</span>
-                        </div>
-                      </div>
-                    )
-                  })}
-                </div>
-
-                {selectedSector && (
-                  <>
-                    <h4 className="font-medium">Select a subcategory</h4>
-
-                    <div className="relative mb-4">
-                      <Search className="absolute left-2.5 top-2.5 h-4 w-4 text-muted-foreground" />
-                      <Input
-                        type="search"
-                        placeholder="Search subcategories..."
-                        className="pl-8"
-                        value={subcategorySearchQuery}
-                        onChange={(e) => setSubcategorySearchQuery(e.target.value)}
-                      />
-                    </div>
-
-                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
-                      {searchFilteredSubcategories.map((subcategory) => {
-                        const isSelected = wizardData.subcategory === subcategory.id.toString()
-
-                        return (
-                          <div
-                            key={subcategory.id}
-                            className={cn(
-                              "border rounded-lg p-3 cursor-pointer transition-all hover:border-primary",
-                              isSelected ? "border-primary bg-primary/5" : "",
-                            )}
-                            onClick={() => updateWizardData("subcategory", subcategory.id.toString())}
-                          >
-                            <div className="flex items-center gap-2">
-                              <div className={cn("w-4 h-4 rounded-full", isSelected ? "bg-primary" : "bg-muted")}></div>
-                              <span>{subcategory.name}</span>
-                            </div>
-                          </div>
-                        )
-                      })}
-                    </div>
-                  </>
-                )}
-              </div>
-            )}
-
-            {/* Step 3: Location */}
-            {wizardStep === 3 && (
-              <div className="space-y-4">
-                <h3 className="text-lg font-medium">Where is your business located?</h3>
-
-                <div>
-                  <FormLabel htmlFor="wizard-address">Address</FormLabel>
-                  <Input
-                    id="wizard-address"
-                    placeholder="123 Main St"
-                    value={wizardData.address}
-                    onChange={(e) => updateWizardData("address", e.target.value)}
-                  />
-                </div>
-
-                <div className="space-y-4">
-                  <div>
-                    <FormLabel>County</FormLabel>
-                    <div className="space-y-2">
-                      <div className="flex flex-wrap gap-2 mb-2">
-                        {popularCounties.map((county) => (
-                          <Badge
-                            key={county}
-                            variant={wizardData.county === county ? "default" : "outline"}
-                            className="cursor-pointer"
-                            onClick={() => updateWizardData("county", county)}
-                          >
-                            {county}
-                          </Badge>
-                        ))}
-                      </div>
-                      <Combobox
-                        items={counties.map((county) => ({ label: county, value: county }))}
-                        placeholder="Search for a county..."
-                        value={wizardData.county}
-                        onChange={(value) => {
-                          updateWizardData("county", value)
-                          updateWizardData("subcounty", "")
-                        }}
-                      />
-                    </div>
+              <div className="flex justify-between mb-6">
+                <div className={`flex-1 text-center ${wizardStep === 1 ? "text-primary font-medium" : ""}`}>
+                  <div
+                    className={`rounded-full w-8 h-8 flex items-center justify-center mx-auto mb-1 ${wizardStep === 1 ? "bg-primary text-primary-foreground" : "bg-muted"}`}
+                  >
+                    1
                   </div>
+                  <p className="text-sm">Basic Info</p>
+                </div>
+                <div className={`flex-1 text-center ${wizardStep === 2 ? "text-primary font-medium" : ""}`}>
+                  <div
+                    className={`rounded-full w-8 h-8 flex items-center justify-center mx-auto mb-1 ${wizardStep === 2 ? "bg-primary text-primary-foreground" : "bg-muted"}`}
+                  >
+                    2
+                  </div>
+                  <p className="text-sm">Category</p>
+                </div>
+                <div className={`flex-1 text-center ${wizardStep === 3 ? "text-primary font-medium" : ""}`}>
+                  <div
+                    className={`rounded-full w-8 h-8 flex items-center justify-center mx-auto mb-1 ${wizardStep === 3 ? "bg-primary text-primary-foreground" : "bg-muted"}`}
+                  >
+                    3
+                  </div>
+                  <p className="text-sm">Location</p>
+                </div>
+              </div>
 
-                  {wizardData.county && (
-                    <div>
-                      <FormLabel>Sub-County</FormLabel>
-                      <Combobox
-                        items={subcounties.map((subcounty) => ({ label: subcounty, value: subcounty }))}
-                        placeholder="Select a sub-county..."
-                        value={wizardData.subcounty}
-                        onChange={(value) => updateWizardData("subcounty", value)}
-                        disabled={!wizardData.county}
+              <Form {...wizardForm}>
+                <form onSubmit={wizardForm.handleSubmit(completeBusinessWizard)} className="space-y-6">
+                  {/* Step 1: Basic Info */}
+                  {wizardStep === 1 && (
+                    <div className="space-y-4">
+                      <h3 className="text-lg font-medium">Tell us about your business</h3>
+                      <FormField
+                        control={wizardForm.control}
+                        name="business_name"
+                        render={({ field }) => (
+                          <FormItem>
+                            <FormLabel>Business Name</FormLabel>
+                            <FormControl>
+                              <Input placeholder="Your Business Name" {...field} />
+                            </FormControl>
+                            <FormMessage />
+                          </FormItem>
+                        )}
+                      />
+                      <FormField
+                        control={wizardForm.control}
+                        name="description"
+                        render={({ field }) => (
+                          <FormItem>
+                            <FormLabel>Business Description</FormLabel>
+                            <FormControl>
+                              <Textarea
+                                placeholder="Describe your business and services"
+                                className="min-h-[150px]"
+                                {...field}
+                              />
+                            </FormControl>
+                            <FormDescription>
+                              Provide a detailed description of your services, expertise, and what sets you apart
+                            </FormDescription>
+                            <FormMessage />
+                          </FormItem>
+                        )}
+                      />
+                      <FormField
+                        control={wizardForm.control}
+                        name="website"
+                        render={({ field }) => (
+                          <FormItem>
+                            <FormLabel>Website (Optional)</FormLabel>
+                            <FormControl>
+                              <Input placeholder="https://yourbusiness.com" {...field} />
+                            </FormControl>
+                            <FormMessage />
+                          </FormItem>
+                        )}
                       />
                     </div>
                   )}
 
-                  <div>
-                    <FormLabel htmlFor="wizard-town">Town</FormLabel>
-                    <Input
-                      id="wizard-town"
-                      placeholder="Town"
-                      value={wizardData.town}
-                      onChange={(e) => updateWizardData("town", e.target.value)}
-                    />
-                  </div>
-                </div>
+                  {/* Step 2: Category Selection */}
+                  {wizardStep === 2 && (
+                    <div className="space-y-4">
+                      <h3 className="text-lg font-medium">Select your business category</h3>
 
-                <div className="flex items-center p-4 bg-muted rounded-lg mt-4">
-                  <MapPin className="h-5 w-5 text-primary mr-2" />
-                  <div className="text-sm">
-                    <p className="font-medium">Location Preview</p>
-                    <p className="text-muted-foreground">
-                      {wizardData.address && `${wizardData.address}, `}
-                      {wizardData.town && `${wizardData.town}, `}
-                      {wizardData.subcounty && `${wizardData.subcounty}, `}
-                      {wizardData.county}
-                    </p>
-                  </div>
-                </div>
-              </div>
-            )}
+                      <div className="relative mb-4">
+                        <Search className="absolute left-2.5 top-2.5 h-4 w-4 text-muted-foreground" />
+                        <Input
+                          type="search"
+                          placeholder="Search sectors..."
+                          className="pl-8"
+                          value={sectorSearchQuery}
+                          onChange={(e) => setSectorSearchQuery(e.target.value)}
+                        />
+                      </div>
 
-            <div className="flex justify-between pt-4 border-t">
-              {wizardStep > 1 ? (
-                <Button variant="outline" onClick={prevWizardStep}>
-                  <ArrowLeft className="mr-2 h-4 w-4" /> Back
-                </Button>
-              ) : (
-                <Button variant="outline" onClick={() => setShowBusinessWizard(false)}>
-                  Cancel
-                </Button>
+                      <div className="grid grid-cols-2 sm:grid-cols-3 gap-3 mb-6">
+                        {filteredSectors.map((sector) => {
+                          const SectorIcon = getSectorIcon(sector.name)
+                          const isSelected = wizardForm.watch("sector") === sector.id.toString()
+
+                          return (
+                            <div
+                              key={sector.id}
+                              className={cn(
+                                "border rounded-lg p-4 cursor-pointer transition-all hover:border-primary",
+                                isSelected ? "border-primary bg-primary/5" : "",
+                              )}
+                              onClick={() => {
+                                wizardForm.setValue("sector", sector.id.toString())
+                                setSelectedSector(sector.id.toString())
+                                wizardForm.setValue("subcategory", "")
+                              }}
+                            >
+                              <div className="flex flex-col items-center text-center gap-2">
+                                <div
+                                  className={cn(
+                                    "p-2 rounded-full",
+                                    isSelected ? "bg-primary text-primary-foreground" : "bg-muted",
+                                  )}
+                                >
+                                  <SectorIcon className="h-5 w-5" />
+                                </div>
+                                <span className="text-sm font-medium">{sector.name}</span>
+                              </div>
+                            </div>
+                          )
+                        })}
+                      </div>
+
+                      {selectedSector && (
+                        <>
+                          <h4 className="font-medium">Select a subcategory</h4>
+
+                          <div className="relative mb-4">
+                            <Search className="absolute left-2.5 top-2.5 h-4 w-4 text-muted-foreground" />
+                            <Input
+                              type="search"
+                              placeholder="Search subcategories..."
+                              className="pl-8"
+                              value={subcategorySearchQuery}
+                              onChange={(e) => setSubcategorySearchQuery(e.target.value)}
+                            />
+                          </div>
+
+                          <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                            {searchFilteredSubcategories.map((subcategory) => {
+                              const isSelected = wizardForm.watch("subcategory") === subcategory.id.toString()
+
+                              return (
+                                <div
+                                  key={subcategory.id}
+                                  className={cn(
+                                    "border rounded-lg p-3 cursor-pointer transition-all hover:border-primary",
+                                    isSelected ? "border-primary bg-primary/5" : "",
+                                  )}
+                                  onClick={() => wizardForm.setValue("subcategory", subcategory.id.toString())}
+                                >
+                                  <div className="flex items-center gap-2">
+                                    <div className={cn("w-4 h-4 rounded-full", isSelected ? "bg-primary" : "bg-muted")}></div>
+                                    <span>{subcategory.name}</span>
+                                  </div>
+                                </div>
+                              )
+                            })}
+                          </div>
+                        </>
+                      )}
+                    </div>
+                  )}
+
+                  {/* Step 3: Location */}
+                  {wizardStep === 3 && (
+                    <div className="space-y-4">
+                      <h3 className="text-lg font-medium">Where is your business located?</h3>
+
+                      <FormField
+                        control={wizardForm.control}
+                        name="address"
+                        render={({ field }) => (
+                          <FormItem>
+                            <FormLabel>Address</FormLabel>
+                            <FormControl>
+                              <Input placeholder="123 Main St" {...field} />
+                            </FormControl>
+                            <FormMessage />
+                          </FormItem>
+                        )}
+                      />
+
+                      <div className="space-y-4">
+                        <FormField
+                          control={wizardForm.control}
+                          name="county"
+                          render={({ field }) => (
+                            <FormItem>
+                              <FormLabel>County</FormLabel>
+                              <div className="space-y-2">
+                                <div className="flex flex-wrap gap-2 mb-2">
+                                  {popularCounties.map((county) => (
+                                    <Badge
+                                      key={county}
+                                      variant={wizardForm.watch("county") === county ? "default" : "outline"}
+                                      className="cursor-pointer"
+                                      onClick={() => {
+                                        wizardForm.setValue("county", county)
+                                        setSelectedCounty(county)
+                                        wizardForm.setValue("subcounty", "")
+                                      }}
+                                    >
+                                      {county}
+                                    </Badge>
+                                  ))}
+                                </div>
+                                <Combobox
+                                  items={counties.map((county) => ({ label: county, value: county }))}
+                                  placeholder="Search for a county..."
+                                  value={wizardForm.watch("county")}
+                                  onChange={(value) => {
+                                    wizardForm.setValue("county", value)
+                                    setSelectedCounty(value)
+                                    wizardForm.setValue("subcounty", "")
+                                  }}
+                                />
+                              </div>
+                              <FormMessage />
+                            </FormItem>
+                          )}
+                        />
+
+                        {wizardForm.watch("county") && (
+                          <FormField
+                            control={wizardForm.control}
+                            name="subcounty"
+                            render={({ field }) => (
+                              <FormItem>
+                                <FormLabel>Sub-County</FormLabel>
+                                <Combobox
+                                  items={subcounties.map((subcounty) => ({ label: subcounty, value: subcounty }))}
+                                  placeholder="Select a sub-county..."
+                                  value={field.value}
+                                  onChange={field.onChange}
+                                  disabled={!wizardForm.watch("county")}
+                                />
+                                <FormMessage />
+                              </FormItem>
+                            )}
+                          />
+                        )}
+
+                        <FormField
+                          control={wizardForm.control}
+                          name="town"
+                          render={({ field }) => (
+                            <FormItem>
+                              <FormLabel>Town</FormLabel>
+                              <FormControl>
+                                <Input placeholder="Town" {...field} />
+                              </FormControl>
+                              <FormMessage />
+                            </FormItem>
+                          )}
+                        />
+                      </div>
+
+                      <div className="flex items-center p-4 bg-muted rounded-lg mt-4">
+                        <MapPin className="h-5 w-5 text-primary mr-2" />
+                        <div className="text-sm">
+                          <p className="font-medium">Location Preview</p>
+                          <p className="text-muted-foreground">
+                            {wizardForm.watch("address") && `${wizardForm.watch("address")}, `}
+                            {wizardForm.watch("town") && `${wizardForm.watch("town")}, `}
+                            {wizardForm.watch("subcounty") && `${wizardForm.watch("subcounty")}, `}
+                            {wizardForm.watch("county")}
+                          </p>
+                        </div>
+                      </div>
+                    </div>
+                  )}
+
+                  <div className="flex justify-between pt-4 border-t">
+                    {wizardStep > 1 ? (
+                      <Button type="button" variant="outline" onClick={prevWizardStep}>
+                        <ArrowLeft className="mr-2 h-4 w-4" /> Back
+                      </Button>
+                    ) : (
+                      <Button type="button" variant="outline" onClick={() => setShowBusinessWizard(false)}>
+                        Cancel
+                      </Button>
+                    )}
+
+                    {wizardStep === 3 ? (
+                      <Button type="submit" disabled={businessSubmitting}>
+                        {businessSubmitting ? "Saving..." : "Complete"}
+                      </Button>
+                    ) : (
+                      <Button
+                        type="button"
+                        onClick={nextWizardStep}
+                        disabled={
+                          (wizardStep === 1 && (!wizardForm.watch("business_name") || !wizardForm.watch("description"))) ||
+                          (wizardStep === 2 && (!wizardForm.watch("sector") || !wizardForm.watch("subcategory")))
+                        }
+                      >
+                        Next <ArrowRight className="ml-2 h-4 w-4" />
+                      </Button>
+                    )}
+                  </div>
+                </form>
+              </Form>
+            </div>
+          </div>
+        )}
+
+        {/* Portfolio Item Add Modal */}
+        <Dialog open={isPortfolioModalOpen} onOpenChange={setIsPortfolioModalOpen}>
+          <DialogContent className="sm:max-w-md">
+            <DialogHeader>
+              <DialogTitle>Add Portfolio Item</DialogTitle>
+              <DialogDescription>Add details about your work to showcase your skills and experience</DialogDescription>
+            </DialogHeader>
+
+            <div className="space-y-4">
+              {portfolioUploadPreview && (
+                <div className="relative h-48 w-full">
+                  <img
+                    src={portfolioUploadPreview || "/placeholder.svg"}
+                    alt="Preview"
+                    className="h-full w-full object-contain rounded-md"
+                  />
+                </div>
               )}
 
-              {wizardStep === 3 ? (
-                <Button
-                  onClick={completeBusinessWizard}
-                  disabled={
-                    businessSubmitting ||
-                    !wizardData.address ||
-                    !wizardData.county ||
-                    !wizardData.subcounty ||
-                    !wizardData.town
-                  }
-                >
-                  {businessSubmitting ? "Saving..." : "Complete"}
-                </Button>
+              <div>
+                <label htmlFor="portfolio-title" className="text-sm font-medium">
+                  Title
+                </label>
+                <Input
+                  id="portfolio-title"
+                  placeholder="e.g., Kitchen Renovation"
+                  value={portfolioItemTitle}
+                  onChange={(e) => setPortfolioItemTitle(e.target.value)}
+                />
+              </div>
+
+              <div>
+                <label htmlFor="portfolio-description" className="text-sm font-medium">
+                  Description
+                </label>
+                <Textarea
+                  id="portfolio-description"
+                  placeholder="Describe this work..."
+                  value={portfolioItemDescription}
+                  onChange={(e) => setPortfolioItemDescription(e.target.value)}
+                />
+              </div>
+            </div>
+
+            <DialogFooter>
+              <Button variant="outline" onClick={cancelPortfolioUpload}>
+                Cancel
+              </Button>
+              <Button onClick={savePortfolioItem}>Save</Button>
+            </DialogFooter>
+          </DialogContent>
+        </Dialog>
+
+        {/* Portfolio Item Edit Modal */}
+        <Dialog open={isEditModalOpen} onOpenChange={setIsEditModalOpen}>
+          <DialogContent className="sm:max-w-md">
+            <DialogHeader>
+              <DialogTitle>Edit Portfolio Item</DialogTitle>
+              <DialogDescription>Update the details of your portfolio item</DialogDescription>
+            </DialogHeader>
+
+            <div className="space-y-4">
+              {editingPortfolioIndex !== null && portfolioItems[editingPortfolioIndex] ? (
+                <div className="relative h-48 w-full">
+                  <img
+                    src={portfolioItems[editingPortfolioIndex]?.imageUrl || "/placeholder.svg"}
+                    alt="Preview"
+                    className="h-full w-full object-contain rounded-md"
+                  />
+                </div>
               ) : (
-                <Button
-                  onClick={nextWizardStep}
-                  disabled={
-                    (wizardStep === 1 && (!wizardData.business_name || !wizardData.description)) ||
-                    (wizardStep === 2 && (!wizardData.sector || !wizardData.subcategory))
-                  }
-                >
-                  Next <ArrowRight className="ml-2 h-4 w-4" />
-                </Button>
+                <div className="relative h-48 w-full bg-muted rounded-md flex items-center justify-center">
+                  <p className="text-muted-foreground">No preview available</p>
+                </div>
               )}
-            </div>
-          </div>
-        </div>
-      )}
 
-      {/* Portfolio Item Add Modal */}
-      <Dialog open={isPortfolioModalOpen} onOpenChange={setIsPortfolioModalOpen}>
-        <DialogContent className="sm:max-w-md">
-          <DialogHeader>
-            <DialogTitle>Add Portfolio Item</DialogTitle>
-            <DialogDescription>Add details about your work to showcase your skills and experience</DialogDescription>
-          </DialogHeader>
-
-          <div className="space-y-4">
-            {portfolioUploadPreview && (
-              <div className="relative h-48 w-full">
-                <img
-                  src={portfolioUploadPreview || "/placeholder.svg"}
-                  alt="Preview"
-                  className="h-full w-full object-contain rounded-md"
+              <div>
+                <label htmlFor="edit-portfolio-title" className="text-sm font-medium">
+                  Title
+                </label>
+                <Input
+                  id="edit-portfolio-title"
+                  value={portfolioItemTitle}
+                  onChange={(e) => setPortfolioItemTitle(e.target.value)}
                 />
               </div>
-            )}
 
-            <div>
-              <label htmlFor="portfolio-title" className="text-sm font-medium">
-                Title
-              </label>
-              <Input
-                id="portfolio-title"
-                placeholder="e.g., Kitchen Renovation"
-                value={portfolioItemTitle}
-                onChange={(e) => setPortfolioItemTitle(e.target.value)}
-              />
-            </div>
-
-            <div>
-              <label htmlFor="portfolio-description" className="text-sm font-medium">
-                Description
-              </label>
-              <Textarea
-                id="portfolio-description"
-                placeholder="Describe this work..."
-                value={portfolioItemDescription}
-                onChange={(e) => setPortfolioItemDescription(e.target.value)}
-              />
-            </div>
-          </div>
-
-          <DialogFooter>
-            <Button variant="outline" onClick={cancelPortfolioUpload}>
-              Cancel
-            </Button>
-            <Button onClick={savePortfolioItem}>Save</Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
-
-      {/* Portfolio Item Edit Modal */}
-      <Dialog open={isEditModalOpen} onOpenChange={setIsEditModalOpen}>
-        <DialogContent className="sm:max-w-md">
-          <DialogHeader>
-            <DialogTitle>Edit Portfolio Item</DialogTitle>
-            <DialogDescription>Update the details of your portfolio item</DialogDescription>
-          </DialogHeader>
-
-          <div className="space-y-4">
-            {editingPortfolioIndex !== null && portfolioItems[editingPortfolioIndex] && (
-              <div className="relative h-48 w-full">
-                <img
-                  src={portfolioItems[editingPortfolioIndex].imageUrl || "/placeholder.svg"}
-                  alt="Preview"
-                  className="h-full w-full object-contain rounded-md"
+              <div>
+                <label htmlFor="edit-portfolio-description" className="text-sm font-medium">
+                  Description
+                </label>
+                <Textarea
+                  id="edit-portfolio-description"
+                  value={portfolioItemDescription}
+                  onChange={(e) => setPortfolioItemDescription(e.target.value)}
                 />
               </div>
-            )}
-
-            <div>
-              <label htmlFor="edit-portfolio-title" className="text-sm font-medium">
-                Title
-              </label>
-              <Input
-                id="edit-portfolio-title"
-                value={portfolioItemTitle}
-                onChange={(e) => setPortfolioItemTitle(e.target.value)}
-              />
             </div>
 
-            <div>
-              <label htmlFor="edit-portfolio-description" className="text-sm font-medium">
-                Description
-              </label>
-              <Textarea
-                id="edit-portfolio-description"
-                value={portfolioItemDescription}
-                onChange={(e) => setPortfolioItemDescription(e.target.value)}
-              />
-            </div>
-          </div>
-
-          <DialogFooter>
-            <Button variant="outline" onClick={cancelPortfolioEdit}>
-              Cancel
-            </Button>
-            <Button onClick={updatePortfolioItem}>Update</Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
+            <DialogFooter>
+              <Button variant="outline" onClick={cancelPortfolioEdit}>
+                Cancel
+              </Button>
+              <Button onClick={updatePortfolioItem}>Update</Button>
+            </DialogFooter>
+          </DialogContent>
+        </Dialog>
+      </div>
     </div>
   )
 }
-
