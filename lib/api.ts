@@ -156,8 +156,9 @@ export const marketplaceApi = {
     return response.json()
   },
 
+  // Portfolio Items (updated to use correct endpoints)
   getPortfolioItems: async (providerId: number) => {
-    const response = await fetchWithAuth(`/marketplace/providers/${providerId}/portfolio/`)
+    const response = await fetchWithAuth(`/marketplace/providers/${providerId}/portfolio-media/`)
     return response.json()
   },
 
@@ -169,37 +170,55 @@ export const marketplaceApi = {
       headers["Authorization"] = `Bearer ${accessToken}`
     }
 
-    const response = await fetch(`${API_URL}/marketplace/providers/${providerId}/portfolio/`, {
+    const response = await fetch(`${API_URL}/marketplace/providers/${providerId}/portfolio-media/`, {
       method: "POST",
-      headers,
-      body: data, // Note: Don't set Content-Type header - the browser will set it with the correct boundary
-    })
-    return response.json()
-  },
-
-  updatePortfolioItem: async (providerId: number, itemId: number, data: FormData) => {
-    const accessToken = localStorage.getItem("accessToken")
-    const headers: Record<string, string> = {}
-    
-    if (accessToken) {
-      headers["Authorization"] = `Bearer ${accessToken}`
-    }
-
-    const response = await fetch(`${API_URL}/marketplace/providers/${providerId}/portfolio/${itemId}/`, {
-      method: "PUT",
       headers,
       body: data,
     })
     return response.json()
   },
 
+  updatePortfolioItem: async (providerId: number, itemId: number, data: { caption?: string, file?: File }) => {
+    const accessToken = localStorage.getItem("accessToken")
+    const headers: Record<string, string> = {
+      "Content-Type": "application/json"
+    }
+    
+    if (accessToken) {
+      headers["Authorization"] = `Bearer ${accessToken}`
+    }
+
+    // Handle file upload separately if file is present
+    if (data.file) {
+      const formData = new FormData()
+      formData.append('file', data.file)
+      if (data.caption) formData.append('caption', data.caption)
+      
+      // Remove Content-Type header for FormData
+      delete headers["Content-Type"]
+      
+      const response = await fetch(`${API_URL}/marketplace/providers/${providerId}/portfolio-media/${itemId}/`, {
+        method: "PATCH",
+        headers,
+        body: formData,
+      })
+      return response.json()
+    } else {
+      // Just update caption
+      const response = await fetchWithAuth(`/marketplace/providers/${providerId}/portfolio-media/${itemId}/`, {
+        method: "PATCH",
+        body: JSON.stringify({ caption: data.caption }),
+      })
+      return response.json()
+    }
+  },
+
   deletePortfolioItem: async (providerId: number, itemId: number) => {
-    const response = await fetchWithAuth(`/marketplace/providers/${providerId}/portfolio/${itemId}/`, {
+    const response = await fetchWithAuth(`/marketplace/providers/${providerId}/portfolio-media/${itemId}/`, {
       method: "DELETE",
     })
     return response.status === 204
   },
-  
 }
 
 function getAccessToken(): string | null {

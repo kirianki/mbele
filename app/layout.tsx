@@ -11,6 +11,9 @@ const inter = Inter({ subsets: ["latin"] })
 export const metadata = {
   title: "Service Platform",
   description: "Connect with service providers in your area",
+  icons: {
+    icon: "/logo.png",
+  },
 }
 
 export default function RootLayout({

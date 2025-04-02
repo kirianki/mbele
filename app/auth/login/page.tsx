@@ -16,10 +16,14 @@ const formSchema = z.object({
   password: z.string().min(1, "Password is required"),
 })
 
+type ApiError = {
+  [key: string]: string[]
+}
+
 export default function LoginPage() {
   const { login, isLoading } = useAuth()
   const router = useRouter()
-  const [error, setError] = useState<string | null>(null)
+  const [apiErrors, setApiErrors] = useState<ApiError>({})
 
   const form = useForm<z.infer<typeof formSchema>>({
     resolver: zodResolver(formSchema),
@@ -31,11 +35,40 @@ export default function LoginPage() {
 
   const onSubmit = async (values: z.infer<typeof formSchema>) => {
     try {
-      setError(null)
+      setApiErrors({})
       await login(values.username, values.password)
+      router.push("/") // Redirect on successful login
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Login failed")
+      if (err instanceof Error) {
+        try {
+          // Try to parse the error as JSON (assuming API returns validation errors in this format)
+          const errorData = JSON.parse(err.message)
+          if (typeof errorData === 'object' && errorData !== null) {
+            setApiErrors(errorData)
+          } else {
+            setApiErrors({ non_field_errors: [err.message] })
+          }
+        } catch (e) {
+          // If not JSON, treat as plain error message
+          setApiErrors({ non_field_errors: [err.message] })
+        }
+      } else {
+        setApiErrors({ non_field_errors: ["Login failed"] })
+      }
     }
+  }
+
+  // Helper function to render API errors for a specific field
+  const renderApiErrors = (fieldName: string) => {
+    if (!apiErrors[fieldName]) return null
+    
+    return (
+      <div className="text-sm text-destructive">
+        {apiErrors[fieldName].map((error, index) => (
+          <p key={index}>{error}</p>
+        ))}
+      </div>
+    )
   }
 
   return (
@@ -59,6 +92,7 @@ export default function LoginPage() {
                       <Input placeholder="Enter your username" {...field} />
                     </FormControl>
                     <FormMessage />
+                    {renderApiErrors("username")}
                   </FormItem>
                 )}
               />
@@ -72,10 +106,20 @@ export default function LoginPage() {
                       <Input type="password" placeholder="Enter your password" {...field} />
                     </FormControl>
                     <FormMessage />
+                    {renderApiErrors("password")}
                   </FormItem>
                 )}
               />
-              {error && <div className="text-sm text-destructive">{error}</div>}
+              
+              {/* Display non-field errors */}
+              {apiErrors.non_field_errors && (
+                <div className="text-sm text-destructive">
+                  {apiErrors.non_field_errors.map((error, index) => (
+                    <p key={index}>{error}</p>
+                  ))}
+                </div>
+              )}
+              
               <Button type="submit" className="w-full" disabled={isLoading}>
                 {isLoading ? "Signing in..." : "Sign In"}
               </Button>
@@ -92,4 +136,3 @@ export default function LoginPage() {
     </div>
   )
 }
-

@@ -181,15 +181,15 @@ export default function ContactPage() {
                       <Mail className="h-5 w-5 text-primary mt-0.5" />
                       <div>
                         <h3 className="font-medium">Email</h3>
-                        <p className="text-muted-foreground">support@serviceplatform.com</p>
-                        <p className="text-muted-foreground">info@serviceplatform.com</p>
+                        <p className="text-muted-foreground">kiriankisamuel99@gmail.com</p>
+                        <p className="text-muted-foreground">samuelkirianki@outlook.com</p>
                       </div>
                     </div>
                     <div className="flex items-start space-x-4">
                       <Phone className="h-5 w-5 text-primary mt-0.5" />
                       <div>
                         <h3 className="font-medium">Phone</h3>
-                        <p className="text-muted-foreground">+1 (555) 123-4567</p>
+                        <p className="text-muted-foreground">+254 793 761 716</p>
                         <p className="text-muted-foreground">Mon-Fri, 9:00 AM - 6:00 PM EST</p>
                       </div>
                     </div>
@@ -197,9 +197,9 @@ export default function ContactPage() {
                       <MapPin className="h-5 w-5 text-primary mt-0.5" />
                       <div>
                         <h3 className="font-medium">Address</h3>
-                        <p className="text-muted-foreground">123 Business Avenue</p>
-                        <p className="text-muted-foreground">Suite 200</p>
-                        <p className="text-muted-foreground">New York, NY 10001</p>
+                        <p className="text-muted-foreground">Nairobi</p>
+                        <p className="text-muted-foreground">Kenya</p>
+                        <p className="text-muted-foreground">HOME</p>
                       </div>
                     </div>
                     <div className="flex items-start space-x-4">

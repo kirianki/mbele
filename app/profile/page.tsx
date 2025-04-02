@@ -166,9 +166,15 @@ export default function ProfilePage() {
   const [subcounties, setSubcounties] = useState<string[]>([])
   const [selectedCounty, setSelectedCounty] = useState<string>("")
   const [profileImage, setProfileImage] = useState<string | null>(null)
-  const [portfolioItems, setPortfolioItems] = useState<Array<{ imageUrl: string; title: string; description: string }>>([])
+  const [portfolioItems, setPortfolioItems] = useState<Array<{
+    id?: number;
+    media_type: string;
+    file?: File | string;
+    caption: string;
+    url?: string;
+  }>>([])
+  const [portfolioUploadFile, setPortfolioUploadFile] = useState<File | null>(null)
   const [portfolioUploadPreview, setPortfolioUploadPreview] = useState<string | null>(null)
-  const [portfolioItemTitle, setPortfolioItemTitle] = useState("")
   const [portfolioItemDescription, setPortfolioItemDescription] = useState("")
   const [editingPortfolioIndex, setEditingPortfolioIndex] = useState<number | null>(null)
   const [isPortfolioModalOpen, setIsPortfolioModalOpen] = useState(false)
@@ -256,6 +262,10 @@ export default function ProfilePage() {
           setSelectedCounty(response.county)
           setSubcounties(getSubcountiesForCounty(response.county))
         }
+
+        // Load portfolio items
+        const items = await marketplaceApi.getPortfolioItems(response.id)
+        setPortfolioItems(items)
       } else {
         setHasBusinessProfile(false)
       }
@@ -541,11 +551,12 @@ export default function ProfilePage() {
   const handlePortfolioImageUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
     if (e.target.files && e.target.files[0]) {
       const file = e.target.files[0]
+      setPortfolioUploadFile(file)
+      
       const reader = new FileReader()
       reader.onload = (event) => {
         if (event.target?.result) {
           setPortfolioUploadPreview(event.target.result as string)
-          setPortfolioItemTitle("")
           setPortfolioItemDescription("")
           setIsPortfolioModalOpen(true)
         }
@@ -555,22 +566,18 @@ export default function ProfilePage() {
   }
 
   const savePortfolioItem = async () => {
-    if (!portfolioUploadPreview) return
+    if (!portfolioUploadFile || !businessProfile?.id) return
 
     try {
-      setPortfolioItems([
-        ...portfolioItems,
-        {
-          imageUrl: portfolioUploadPreview,
-          title: portfolioItemTitle || "Untitled Item",
-          description: portfolioItemDescription || "No description provided",
-        },
-      ])
+      const formData = new FormData()
+      formData.append('media_type', 'image')
+      formData.append('file', portfolioUploadFile)
+      formData.append('caption', portfolioItemDescription || 'No description')
 
-      setPortfolioUploadPreview(null)
-      setPortfolioItemTitle("")
-      setPortfolioItemDescription("")
-      setIsPortfolioModalOpen(false)
+      const newItem = await marketplaceApi.uploadPortfolioItem(businessProfile.id, formData)
+      
+      setPortfolioItems([...portfolioItems, newItem])
+      resetPortfolioUpload()
 
       toast({
         title: "Portfolio item added",
@@ -594,36 +601,40 @@ export default function ProfilePage() {
     }
   }
 
-  const cancelPortfolioUpload = () => {
+  const resetPortfolioUpload = () => {
+    setPortfolioUploadFile(null)
     setPortfolioUploadPreview(null)
-    setPortfolioItemTitle("")
     setPortfolioItemDescription("")
     setIsPortfolioModalOpen(false)
+    if (portfolioImageInputRef.current) {
+      portfolioImageInputRef.current.value = ""
+    }
   }
 
   const handleEditPortfolioItem = (index: number) => {
+    const item = portfolioItems[index]
     setEditingPortfolioIndex(index)
-    setPortfolioItemTitle(portfolioItems[index].title)
-    setPortfolioItemDescription(portfolioItems[index].description)
+    setPortfolioItemDescription(item.caption)
     setIsEditModalOpen(true)
   }
 
   const updatePortfolioItem = async () => {
-    if (editingPortfolioIndex === null) return
+    if (editingPortfolioIndex === null || !businessProfile?.id) return
 
     try {
-      const updatedItems = [...portfolioItems]
-      updatedItems[editingPortfolioIndex] = {
-        ...updatedItems[editingPortfolioIndex],
-        title: portfolioItemTitle || "Untitled Item",
-        description: portfolioItemDescription || "No description provided",
-      }
+      const itemId = portfolioItems[editingPortfolioIndex].id
+      if (!itemId) return
 
+      const updatedItem = await marketplaceApi.updatePortfolioItem(
+        businessProfile.id,
+        itemId,
+        { caption: portfolioItemDescription }
+      )
+
+      const updatedItems = [...portfolioItems]
+      updatedItems[editingPortfolioIndex] = updatedItem
       setPortfolioItems(updatedItems)
-      setEditingPortfolioIndex(null)
-      setPortfolioItemTitle("")
-      setPortfolioItemDescription("")
-      setIsEditModalOpen(false)
+      resetPortfolioEdit()
 
       toast({
         title: "Portfolio item updated",
@@ -647,22 +658,29 @@ export default function ProfilePage() {
     }
   }
 
-  const cancelPortfolioEdit = () => {
+  const resetPortfolioEdit = () => {
     setEditingPortfolioIndex(null)
-    setPortfolioItemTitle("")
     setPortfolioItemDescription("")
     setIsEditModalOpen(false)
   }
 
   const handleDeletePortfolioItem = async (index: number) => {
-    try {
-      const updatedItems = portfolioItems.filter((_, i) => i !== index)
-      setPortfolioItems(updatedItems)
+    if (!businessProfile?.id) return
 
-      toast({
-        title: "Portfolio item deleted",
-        description: "Your portfolio item has been successfully deleted",
-      })
+    try {
+      const itemId = portfolioItems[index].id
+      if (!itemId) return
+
+      const success = await marketplaceApi.deletePortfolioItem(businessProfile.id, itemId)
+      if (success) {
+        const updatedItems = portfolioItems.filter((_, i) => i !== index)
+        setPortfolioItems(updatedItems)
+
+        toast({
+          title: "Portfolio item deleted",
+          description: "Your portfolio item has been successfully deleted",
+        })
+      }
     } catch (error: any) {
       console.error("Error deleting portfolio item:", error)
       
@@ -713,7 +731,6 @@ export default function ProfilePage() {
         ...values,
         sector: Number.parseInt(values.sector),
         subcategory: Number.parseInt(values.subcategory),
-        portfolio_media: portfolioItems,
         ...(coordinates && {
           location: {
             type: "Point",
@@ -798,17 +815,6 @@ export default function ProfilePage() {
     }
     return sectorIcons.default
   }
-
-  useEffect(() => {
-    if (businessProfile && businessProfile.portfolio_media) {
-      const items = businessProfile.portfolio_media.map((item: any, index: number) => ({
-        imageUrl: item.url || `/placeholder.svg?height=200&width=300`,
-        title: item.title || `Item ${index + 1}`,
-        description: item.description || "",
-      }))
-      setPortfolioItems(items)
-    }
-  }, [businessProfile])
 
   if (authLoading || !user) {
     return (
@@ -1315,7 +1321,7 @@ export default function ProfilePage() {
                           <input
                             ref={portfolioImageInputRef}
                             type="file"
-                            accept="image/*"
+                            accept="image/*,video/*"
                             className="hidden"
                             onChange={handlePortfolioImageUpload}
                           />
@@ -1332,13 +1338,17 @@ export default function ProfilePage() {
                       ) : (
                         <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-4">
                           {portfolioItems.map((item, index) => (
-                            <div key={index} className="border rounded-md overflow-hidden group relative">
+                            <div key={item.id || index} className="border rounded-md overflow-hidden group relative">
                               <div className="relative h-48 w-full">
-                                <img
-                                  src={item.imageUrl || "/placeholder.svg"}
-                                  alt={`Portfolio item ${index + 1}`}
-                                  className="h-full w-full object-cover"
-                                />
+                              <img
+                                src={
+                                  typeof item.file === "string"
+                                    ? `http://localhost:8000${item.file}`
+                                    : item.url || "/placeholder.svg"
+                                }
+                                alt={item.caption || `Portfolio item ${index + 1}`}
+                                className="h-full w-full object-cover"
+                              />
                                 <div className="absolute inset-0 bg-black/60 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center gap-2">
                                   <Button
                                     variant="outline"
@@ -1358,10 +1368,7 @@ export default function ProfilePage() {
                                 </div>
                               </div>
                               <div className="p-3">
-                                <p className="font-medium truncate">{item.title || `Item ${index + 1}`}</p>
-                                <p className="text-sm text-muted-foreground truncate">
-                                  {item.description || "No description"}
-                                </p>
+                                <p className="font-medium truncate">{item.caption || `Item ${index + 1}`}</p>
                               </div>
                             </div>
                           ))}
@@ -1716,24 +1723,12 @@ export default function ProfilePage() {
               {portfolioUploadPreview && (
                 <div className="relative h-48 w-full">
                   <img
-                    src={portfolioUploadPreview || "/placeholder.svg"}
+                    src={portfolioUploadPreview}
                     alt="Preview"
                     className="h-full w-full object-contain rounded-md"
                   />
                 </div>
               )}
-
-              <div>
-                <label htmlFor="portfolio-title" className="text-sm font-medium">
-                  Title
-                </label>
-                <Input
-                  id="portfolio-title"
-                  placeholder="e.g., Kitchen Renovation"
-                  value={portfolioItemTitle}
-                  onChange={(e) => setPortfolioItemTitle(e.target.value)}
-                />
-              </div>
 
               <div>
                 <label htmlFor="portfolio-description" className="text-sm font-medium">
@@ -1749,10 +1744,12 @@ export default function ProfilePage() {
             </div>
 
             <DialogFooter>
-              <Button variant="outline" onClick={cancelPortfolioUpload}>
+              <Button variant="outline" onClick={resetPortfolioUpload}>
                 Cancel
               </Button>
-              <Button onClick={savePortfolioItem}>Save</Button>
+              <Button onClick={savePortfolioItem} disabled={!portfolioUploadFile}>
+                Save
+              </Button>
             </DialogFooter>
           </DialogContent>
         </Dialog>
@@ -1769,8 +1766,10 @@ export default function ProfilePage() {
               {editingPortfolioIndex !== null && portfolioItems[editingPortfolioIndex] ? (
                 <div className="relative h-48 w-full">
                   <img
-                    src={portfolioItems[editingPortfolioIndex]?.imageUrl || "/placeholder.svg"}
-                    alt="Preview"
+                    src={typeof portfolioItems[editingPortfolioIndex].file === 'string' ? 
+                         portfolioItems[editingPortfolioIndex].file : 
+                         portfolioItems[editingPortfolioIndex].url || '/placeholder.svg'}
+                    alt={portfolioItems[editingPortfolioIndex].caption || 'Portfolio item'}
                     className="h-full w-full object-contain rounded-md"
                   />
                 </div>
@@ -1779,17 +1778,6 @@ export default function ProfilePage() {
                   <p className="text-muted-foreground">No preview available</p>
                 </div>
               )}
-
-              <div>
-                <label htmlFor="edit-portfolio-title" className="text-sm font-medium">
-                  Title
-                </label>
-                <Input
-                  id="edit-portfolio-title"
-                  value={portfolioItemTitle}
-                  onChange={(e) => setPortfolioItemTitle(e.target.value)}
-                />
-              </div>
 
               <div>
                 <label htmlFor="edit-portfolio-description" className="text-sm font-medium">
@@ -1804,7 +1792,7 @@ export default function ProfilePage() {
             </div>
 
             <DialogFooter>
-              <Button variant="outline" onClick={cancelPortfolioEdit}>
+              <Button variant="outline" onClick={resetPortfolioEdit}>
                 Cancel
               </Button>
               <Button onClick={updatePortfolioItem}>Update</Button>

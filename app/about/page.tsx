@@ -22,7 +22,7 @@ export default function AboutPage() {
             </div>
             <div className="flex items-center justify-center">
               <div className="relative h-[300px] w-full md:h-[400px] rounded-lg overflow-hidden shadow-md">
-                <Image src="/images/about-team.png" alt="Our team" fill className="object-cover" />
+                <Image src="/images/our_team.jpg" alt="Our team" fill className="object-cover" />
               </div>
             </div>
           </div>
@@ -35,7 +35,7 @@ export default function AboutPage() {
           <div className="grid gap-6 lg:grid-cols-2 lg:gap-12 items-center">
             <div className="order-2 lg:order-1">
               <div className="relative h-[300px] w-full md:h-[400px] rounded-lg overflow-hidden shadow-md">
-                <Image src="/images/about-story.png" alt="Our story" fill className="object-cover" />
+                <Image src="/images/our_story.jpg" alt="Our story" fill className="object-cover" />
               </div>
             </div>
             <div className="order-1 lg:order-2 flex flex-col justify-center space-y-4">

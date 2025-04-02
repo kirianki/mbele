@@ -8,7 +8,7 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { Skeleton } from "@/components/ui/skeleton"
 import { Avatar, AvatarFallback } from "@/components/ui/avatar"
-import { Star, MapPin, Phone, Globe, MessageSquare, Calendar, Heart } from "lucide-react"
+import { Star, MapPin, Phone, Globe, MessageSquare, Calendar, Heart, Image as ImageIcon, ChevronLeft, ChevronRight, X, Video } from "lucide-react"
 import { useAuth } from "@/lib/auth-context"
 import { marketplaceApi, transactionsApi } from "@/lib/api"
 import { useToast } from "@/components/ui/use-toast"
@@ -32,7 +32,13 @@ type Provider = {
   town: string
   is_verified: boolean
   membership_tier: string
-  portfolio_media: any[]
+  portfolio_media: Array<{
+    id: number
+    media_type: string
+    file: string
+    caption: string
+    uploaded_at: string
+  }>
   average_rating: number
 }
 
@@ -59,9 +65,10 @@ export default function ProviderProfilePage({ params }: { params: Promise<{ id: 
   const [error, setError] = useState<string | null>(null)
   const [isFavorite, setIsFavorite] = useState(false)
   const [favorites, setFavorites] = useState<any[]>([])
-  // State for new review creation
   const [newRating, setNewRating] = useState(5)
   const [newComment, setNewComment] = useState("")
+  const [currentSlideIndex, setCurrentSlideIndex] = useState(0)
+  const [isSlideshowOpen, setIsSlideshowOpen] = useState(false)
 
   // Unwrap params (assumed not to be a promise in actual usage)
   const { id } = use(params)
@@ -96,6 +103,69 @@ export default function ProviderProfilePage({ params }: { params: Promise<{ id: 
     fetchData()
   }, [providerId, user])
 
+  const getFullImageUrl = (filePath: string) => {
+    if (!filePath) return "/placeholder.svg"
+    if (filePath.startsWith('http')) return filePath
+    return `${process.env.NEXT_PUBLIC_API_URL}${filePath}`
+  }
+
+  const openSlideshow = (index: number) => {
+    setCurrentSlideIndex(index)
+    setIsSlideshowOpen(true)
+  }
+
+  const closeSlideshow = () => {
+    setIsSlideshowOpen(false)
+  }
+
+  const goToPreviousSlide = () => {
+    if (!provider) return
+    setCurrentSlideIndex(prev =>
+      prev === 0 ? provider.portfolio_media.length - 1 : prev - 1
+    )
+  }
+
+  const goToNextSlide = () => {
+    if (!provider) return
+    setCurrentSlideIndex(prev =>
+      prev === provider.portfolio_media.length - 1 ? 0 : prev + 1
+    )
+  }
+
+  const handleKeyDown = (e: KeyboardEvent) => {
+    if (!isSlideshowOpen || !provider) return;
+    
+    // Don't navigate if a video is playing and has focus
+    const currentMedia = provider.portfolio_media[currentSlideIndex];
+    if (currentMedia.media_type === 'video') {
+      const videoElement = document.querySelector('video');
+      if (videoElement && document.activeElement === videoElement) {
+        return;
+      }
+    }
+
+    switch (e.key) {
+      case 'ArrowLeft':
+        goToPreviousSlide();
+        break;
+      case 'ArrowRight':
+        goToNextSlide();
+        break;
+      case 'Escape':
+        closeSlideshow();
+        break;
+      default:
+        break;
+    }
+  }
+
+  useEffect(() => {
+    window.addEventListener('keydown', handleKeyDown)
+    return () => {
+      window.removeEventListener('keydown', handleKeyDown)
+    }
+  }, [isSlideshowOpen, currentSlideIndex, provider])
+
   const toggleFavorite = async () => {
     if (!user) {
       toast({
@@ -109,7 +179,6 @@ export default function ProviderProfilePage({ params }: { params: Promise<{ id: 
 
     try {
       if (isFavorite) {
-        // Find the favorite ID
         const favorite = favorites.find((fav: any) => fav.provider === providerId)
         if (favorite) {
           await transactionsApi.removeFavorite(favorite.id)
@@ -165,7 +234,6 @@ export default function ProviderProfilePage({ params }: { params: Promise<{ id: 
     router.push(`/messages/${provider?.user_id}`)
   }
 
-  // Handler for review creation
   const handleReviewSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
     if (!user) {
@@ -178,13 +246,11 @@ export default function ProviderProfilePage({ params }: { params: Promise<{ id: 
       return
     }
     try {
-      // Call API to create review (adjust parameters as needed)
       const createdReview = await marketplaceApi.createReview({
         provider: providerId,
         rating: newRating,
         comment: newComment,
       })
-      // Prepend the new review to the list
       setReviews([createdReview, ...reviews])
       setNewRating(5)
       setNewComment("")
@@ -260,7 +326,7 @@ export default function ProviderProfilePage({ params }: { params: Promise<{ id: 
             <div className="flex flex-col md:flex-row gap-6">
               <div className="md:w-1/3">
                 <img
-                  src={provider.user_profile_picture || "/placeholder.svg?height=200&width=400"}
+                  src={getFullImageUrl(provider.user_profile_picture) || "/placeholder.svg?height=200&width=400"}
                   alt={provider.business_name}
                   className="w-full h-64 object-cover rounded-lg"
                 />
@@ -469,12 +535,45 @@ export default function ProviderProfilePage({ params }: { params: Promise<{ id: 
                     {provider.portfolio_media && provider.portfolio_media.length > 0 ? (
                       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
                         {provider.portfolio_media.map((item, index) => (
-                          <img
-                            key={index}
-                            src={item.url || "/placeholder.svg?height=200&width=300"}
-                            alt={`Portfolio item ${index + 1}`}
-                            className="rounded-md object-cover h-48 w-full"
-                          />
+                          <div
+                            key={item.id}
+                            className="group relative cursor-pointer rounded-md overflow-hidden"
+                            onClick={() => item.media_type === 'image' ? openSlideshow(index) : null}
+                          >
+                            <div className="aspect-square bg-muted relative">
+                              {item.media_type === 'image' ? (
+                                <>
+                                  <img
+                                    src={getFullImageUrl(item.file)}
+                                    alt={item.caption || "Portfolio item"}
+                                    className="w-full h-full object-cover"
+                                  />
+                                  <div className="absolute inset-0 bg-black/30 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center">
+                                    <div className="text-white text-center p-4">
+                                      <ImageIcon className="h-8 w-8 mx-auto mb-2" />
+                                      <p className="font-medium">{item.caption || "No caption"}</p>
+                                    </div>
+                                  </div>
+                                </>
+                              ) : (
+                                <>
+                                  <video
+                                    src={getFullImageUrl(item.file)}
+                                    className="w-full h-full object-cover"
+                                    muted
+                                    loop
+                                    playsInline
+                                  />
+                                  <div className="absolute inset-0 bg-black/30 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center">
+                                    <div className="text-white text-center p-4">
+                                      <Video className="h-8 w-8 mx-auto mb-2" />
+                                      <p className="font-medium">{item.caption || "No caption"}</p>
+                                    </div>
+                                  </div>
+                                </>
+                              )}
+                            </div>
+                          </div>
                         ))}
                       </div>
                     ) : (
@@ -486,6 +585,60 @@ export default function ProviderProfilePage({ params }: { params: Promise<{ id: 
                 </Card>
               </TabsContent>
             </Tabs>
+
+            {/* Slideshow Modal */}
+            {isSlideshowOpen && provider && (
+              <div className="fixed inset-0 bg-black/90 z-50 flex items-center justify-center p-4">
+                <button
+                  onClick={closeSlideshow}
+                  className="absolute top-4 right-4 text-white hover:text-gray-300 z-50"
+                >
+                  <X className="h-8 w-8" />
+                </button>
+                
+                <div className="relative w-full max-w-6xl h-full flex items-center">
+                  <button
+                    onClick={goToPreviousSlide}
+                    className="absolute left-4 bg-black/50 hover:bg-black/70 text-white p-2 rounded-full z-10"
+                  >
+                    <ChevronLeft className="h-8 w-8" />
+                  </button>
+                  
+                  <div className="w-full h-full flex items-center justify-center">
+                    {provider.portfolio_media[currentSlideIndex].media_type === 'image' ? (
+                      <img
+                        src={getFullImageUrl(provider.portfolio_media[currentSlideIndex].file)}
+                        alt={provider.portfolio_media[currentSlideIndex].caption || "Portfolio item"}
+                        className="max-w-full max-h-[90vh] object-contain"
+                      />
+                    ) : (
+                      <video
+                        src={getFullImageUrl(provider.portfolio_media[currentSlideIndex].file)}
+                        className="max-w-full max-h-[90vh] object-contain"
+                        controls
+                        autoPlay
+                      />
+                    )}
+                  </div>
+                  
+                  <button
+                    onClick={goToNextSlide}
+                    className="absolute right-4 bg-black/50 hover:bg-black/70 text-white p-2 rounded-full z-10"
+                  >
+                    <ChevronRight className="h-8 w-8" />
+                  </button>
+                </div>
+
+                <div className="absolute bottom-4 left-0 right-0 text-center text-white">
+                  <p className="text-lg">
+                    {currentSlideIndex + 1} / {provider.portfolio_media.length}
+                  </p>
+                  <p className="text-sm mt-1">
+                    {provider.portfolio_media[currentSlideIndex].caption}
+                  </p>
+                </div>
+              </div>
+            )}
           </>
         ) : (
           <div className="text-center py-12">

@@ -11,6 +11,7 @@ import { marketplaceApi } from "@/lib/api"
 type Provider = {
   id: number
   business_name: string
+  user_profile_picture: string
   distance?: string
   average_rating?: number
   sector_name?: string
@@ -114,7 +115,7 @@ export default function FeaturedProviders() {
               <CardContent className="p-0">
                 <div className="relative">
                   <img
-                    src="/placeholder.svg?height=200&width=400"
+                    src={provider.user_profile_picture || "/placeholder.svg?height=200&width=400"}
                     alt={provider.business_name}
                     className="h-48 w-full object-cover"
                   />
